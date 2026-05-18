@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in real values
+# Never commit terraform.tfvars (contains account IDs / bucket names)
+
+aws_region       = "us-east-2"
+environment      = "conference"
+app_name         = "btl-transport"
+domain_name      = "transport.btl2026.com"      # REPLACE with your domain
+ecr_image_tag    = "latest"
+desired_count    = 1
+cpu              = 512
+memory           = 1024
+tf_state_bucket  = "your-terraform-state-bucket" # REPLACE
+tf_lock_table    = "your-terraform-lock-table"   # REPLACE
+github_org_repo  = "your-org/btl-transport"      # REPLACE

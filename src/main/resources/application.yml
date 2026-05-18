@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: btl-transport-service
+
+  datasource:
+    url: ${SUPABASE_DB_URL}
+    username: ${SUPABASE_DB_USERNAME}
+    password: ${SUPABASE_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      minimum-idle: 2
+      maximum-pool-size: 8
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+    show-sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    # PROD default: baseline-on-migrate=true skips V1 (tables already exist in Supabase).
+    # DEV/TEST: override to false in application-dev.yml so V1 runs and creates the schema.
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+btl:
+  conference:
+    start-date: 2026-06-11
+    end-date: 2026-06-14
+    timezone: America/Indiana/Indianapolis
+  frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
+  admin:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiry-hours: 12
+    users:
+      - username: ${ADMIN_1_USERNAME}
+        password-hash: ${ADMIN_1_PASSWORD_HASH}
+      - username: ${ADMIN_2_USERNAME}
+        password-hash: ${ADMIN_2_PASSWORD_HASH}
+  polling:
+    interval-ms: 1800000
+
+aviationstack:
+  api-key: ${AVIATIONSTACK_API_KEY:test-key}
+  base-url: http://api.aviationstack.com
+
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:test-sid}
+  auth-token: ${TWILIO_AUTH_TOKEN:test-token}
+  from-number: ${TWILIO_FROM_NUMBER:+10000000000}
+  whatsapp-from: ${TWILIO_WHATSAPP_FROM:whatsapp:+10000000000}
+
+sendgrid:
+  api-key: ${SENDGRID_API_KEY:test-key}
+  # info@theevicta.com
+  from-email: ${SENDGRID_FROM_EMAIL:transport@btl2026.com}
+  from-name: "BTL 2026 Transport"
+
+cors:
+  allowed-origins: ${FRONTEND_BASE_URL:http://localhost:5173}
+
+springdoc:
+  api-docs:
+    path: /api/docs
+  swagger-ui:
+    path: /api/swagger-ui

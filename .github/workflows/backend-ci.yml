@@ -1,0 +1,71 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: btl_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          SUPABASE_DB_URL: jdbc:postgresql://localhost:5432/btl_test
+          SUPABASE_DB_USERNAME: postgres
+          SUPABASE_DB_PASSWORD: postgres
+          AVIATIONSTACK_API_KEY: test-key
+          TWILIO_ACCOUNT_SID: test-sid
+          TWILIO_AUTH_TOKEN: test-token
+          TWILIO_FROM_NUMBER: "+10000000000"
+          TWILIO_WHATSAPP_FROM: "whatsapp:+10000000000"
+          SENDGRID_API_KEY: test-key
+          SENDGRID_FROM_EMAIL: test@test.com
+          FRONTEND_BASE_URL: http://localhost:5173
+        run: mvn clean test
+
+      - name: Build JAR
+        run: mvn package -DskipTests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/surefire-reports/
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: btl-transport-jar
+          path: target/*.jar
+          retention-days: 1

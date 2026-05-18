@@ -1,0 +1,36 @@
+# Dev profile — activate with: SPRING_PROFILES_ACTIVE=dev
+#
+# Key difference from prod:
+#   baseline-on-migrate: false  →  Flyway actually RUNS V1__create_schema.sql,
+#                                   creating all enums, tables, sequences, and indexes
+#                                   from scratch on a fresh database.
+#
+# Usage:
+#   SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
+#   or with Docker:  -e SPRING_PROFILES_ACTIVE=dev
+
+spring:
+  flyway:
+    baseline-on-migrate: false   # V1 runs — creates full schema
+
+  jpa:
+    show-sql: true               # helpful during local development
+
+# Override DB to a local Postgres instance (Docker or native)
+# These defaults work with: docker run -e POSTGRES_PASSWORD=btl -e POSTGRES_DB=btl_dev -p 5432:5432 postgres:15
+  datasource:
+    url: ${SUPABASE_DB_URL:jdbc:postgresql://localhost:5432/btl_dev}
+    username: ${SUPABASE_DB_USERNAME:user}
+    password: ${SUPABASE_DB_PASSWORD:password}
+
+btl:
+  admin:
+    jwt:
+      # Must be ≥32 characters. Override via JWT_SECRET env var in .env.
+      secret: ${JWT_SECRET:dev-secret-key-min-32-chars-long!!}
+    users:
+      # Generate a hash: htpasswd -bnBC 10 "" yourpassword | tr -d ':\n'
+      - username: ${ADMIN_1_USERNAME:admin}
+        password-hash: ${ADMIN_1_PASSWORD_HASH:REPLACE_WITH_BCRYPT_HASH}
+      - username: ${ADMIN_2_USERNAME:admin2}
+        password-hash: ${ADMIN_2_PASSWORD_HASH:REPLACE_WITH_BCRYPT_HASH}

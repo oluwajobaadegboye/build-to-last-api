@@ -1,0 +1,498 @@
+{
+  "info": {
+    "name": "BTL 2026 Transport API",
+    "description": "Airport pickup and hotel shuttle coordination for Built to Last 2026 (June 11–14, Indianapolis).\n\n**Auth:** Call `Admin / Login` first. The test script automatically stores the token in the `token` collection variable, so all subsequent admin requests include `Authorization: Bearer {{token}}` automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080/api/v1",
+      "description": "Change to https://api.btl2026.com/api/v1 for production"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "description": "Populated automatically by the Admin Login request test script"
+    },
+    {
+      "key": "btl_code",
+      "value": "BTL-001",
+      "description": "Sample BTL code — update after registering"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Public",
+      "description": "Open endpoints — no authentication required",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\"status\":\"UP\",\"db\":\"UP\",\"timestamp\":\"2026-06-11T10:00:00Z\"}"
+            }
+          ]
+        },
+        {
+          "name": "List hotels",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/hotels",
+              "host": ["{{base_url}}"],
+              "path": ["hotels"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[{\"id\":1,\"hotel_name\":\"Hampton Inn\",\"pickup_address\":\"5860 W 73rd St, Indianapolis, IN 46278\",\"shuttle_stop_order\":1},{\"id\":2,\"hotel_name\":\"Holiday Inn\",\"pickup_address\":\"6240 Intech Commons Dr, Indianapolis, IN 46278\",\"shuttle_stop_order\":2},{\"id\":3,\"hotel_name\":\"La Quinta\",\"pickup_address\":\"2650 Executive Dr, Indianapolis, IN 46241\",\"shuttle_stop_order\":3}]"
+            }
+          ]
+        },
+        {
+          "name": "Coordinator contacts",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/coordinator-contacts",
+              "host": ["{{base_url}}"],
+              "path": ["coordinator-contacts"]
+            }
+          }
+        },
+        {
+          "name": "Register participant",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/register",
+              "host": ["{{base_url}}"],
+              "path": ["register"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Doe\",\n  \"phone\": \"+12125551234\",\n  \"email\": \"john@example.com\",\n  \"hotel_id\": 1,\n  \"shuttle_opt_in\": true,\n  \"arrival_airline\": \"AA\",\n  \"arrival_flight_number\": \"AA123\",\n  \"arrival_datetime\": \"2026-06-11T14:30:00-05:00\",\n  \"departure_airline\": \"DL\",\n  \"departure_flight_number\": \"DL456\",\n  \"departure_datetime\": \"2026-06-14T18:00:00-05:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\"success\":true,\"btl_code\":\"BTL-001\",\"message\":\"Registration successful\"}"
+            }
+          ]
+        },
+        {
+          "name": "Update flight",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/update-flight",
+              "host": ["{{base_url}}"],
+              "path": ["update-flight"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"btl_code\": \"{{btl_code}}\",\n  \"direction\": \"arrival\",\n  \"airline\": \"AA\",\n  \"flight_number\": \"AA123\",\n  \"submitted_datetime\": \"2026-06-11T14:30:00-05:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Participant status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/participant-status?code={{btl_code}}",
+              "host": ["{{base_url}}"],
+              "path": ["participant-status"],
+              "query": [
+                { "key": "code", "value": "{{btl_code}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Shuttle status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/shuttle-status",
+              "host": ["{{base_url}}"],
+              "path": ["shuttle-status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "Coordinator endpoints. Run 'Admin / Login' first — the token is stored automatically.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('token', json.token);",
+                  "    pm.test('Login successful — token stored', () => pm.expect(json.token).to.be.a('string'));",
+                  "} else {",
+                  "    pm.test('Login failed', () => pm.expect(pm.response.code).to.equal(200));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/login",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"joba\",\n  \"password\": \"yourpassword\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\"token\":\"eyJhbGciOiJIUzI1NiJ9...\",\"expires_at\":\"2026-06-11T22:00:00Z\"}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\"error\":\"Invalid username or password\"}"
+            }
+          ]
+        },
+        {
+          "name": "Dashboard",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/dashboard",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "dashboard"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\"total_participants\":187,\"registration_target\":400,\"today_run_count\":6,\"active_alerts\":2,\"flights_monitored\":14,\"polling_active\":true}"
+            }
+          ]
+        },
+        {
+          "name": "Participants — list",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/participants?page=0&size=20",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "participants"],
+              "query": [
+                { "key": "status", "value": "registered", "disabled": true },
+                { "key": "hotel_id", "value": "1", "disabled": true },
+                { "key": "needs_attention", "value": "true", "disabled": true },
+                { "key": "search", "value": "John", "disabled": true },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Participants — get by BTL code",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/participants/{{btl_code}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "participants", "{{btl_code}}"]
+            }
+          }
+        },
+        {
+          "name": "Participants — update hotel",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/participants/1/hotel",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "participants", "1", "hotel"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hotel_id\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Participants — flag attention",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/participants/1/attention",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "participants", "1", "attention"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"needs_attention\": true,\n  \"attention_reason\": \"Flight changed, needs manual rebooking\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Alerts — list",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/alerts",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "alerts"]
+            }
+          }
+        },
+        {
+          "name": "Alerts — resolve",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/admin/alerts/{{btl_code}}/resolve",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "alerts", "{{btl_code}}", "resolve"]
+            }
+          }
+        },
+        {
+          "name": "Runs — list (Thursday)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/runs?day=2026-06-11",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "runs"],
+              "query": [
+                { "key": "day", "value": "2026-06-11" },
+                { "key": "direction", "value": "to_church", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Runs — assign driver",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/runs/1/driver",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "runs", "1", "driver"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driver_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Runs — assign vehicle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/runs/1/vehicle",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "runs", "1", "vehicle"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Run participants — mark boarded",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/run-participants/boarded",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "run-participants", "boarded"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"run_id\": 1,\n  \"participant_id\": 42,\n  \"boarded\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Drivers — list",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/drivers",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "drivers"]
+            }
+          }
+        },
+        {
+          "name": "Drivers — create",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/drivers",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "drivers"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bro David\",\n  \"phone\": \"+13175550001\",\n  \"whatsapp\": \"+13175550001\",\n  \"active_from\": \"2026-06-11\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Drivers — update",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/drivers/1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "drivers", "1"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+13175550002\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Vehicles — list",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/vehicles",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "vehicles"]
+            }
+          }
+        },
+        {
+          "name": "Vehicles — create",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/vehicles",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "vehicles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Mini Van 3\",\n  \"type\": \"van\",\n  \"capacity\": 7\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Vehicles — update",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/vehicles/1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "vehicles", "1"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capacity\": 8\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

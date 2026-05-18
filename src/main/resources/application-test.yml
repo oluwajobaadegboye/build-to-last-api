@@ -1,0 +1,21 @@
+# Test profile — used by CI and Testcontainers integration tests.
+# Flyway runs V1 so Testcontainers gets a fully-created schema.
+
+spring:
+  flyway:
+    baseline-on-migrate: false   # V1 runs — creates full schema from scratch
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+btl:
+  admin:
+    jwt:
+      secret: test-jwt-secret-key-min-32-characters!!
+    users:
+      - username: testadmin
+        password-hash: $2a$10$PLACEHOLDER_NOT_USED_IN_UNIT_TESTS
+  polling:
+    interval-ms: 999999999       # disable polling in tests

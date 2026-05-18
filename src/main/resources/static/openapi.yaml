@@ -1,0 +1,1256 @@
+openapi: 3.0.3
+info:
+  title: BTL 2026 Transport API
+  description: >
+    Airport pickup and hotel shuttle coordination for Built to Last 2026 conference
+    (June 11–14, Indianapolis).
+
+    Admin endpoints require a JWT Bearer token obtained from `POST /api/v1/admin/login`.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local dev
+  - url: https://api.btl2026.com/api/v1
+    description: Production
+
+tags:
+  - name: Public
+    description: Open endpoints — no authentication required
+  - name: Admin
+    description: Coordinator endpoints — require Authorization Bearer token
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtained from POST /admin/login. Valid 12 hours.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Invalid or expired token
+
+  schemas:
+
+    # ── Shared ────────────────────────────────────────────────────────────────
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    Hotel:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        hotel_name:
+          type: string
+          example: Hampton Inn
+        pickup_address:
+          type: string
+          example: "5860 W 73rd St, Indianapolis, IN 46278"
+        shuttle_stop_order:
+          type: integer
+          example: 1
+
+    RegisterRequest:
+      type: object
+      required:
+        - full_name
+        - phone
+      properties:
+        full_name:
+          type: string
+          example: John Doe
+        phone:
+          type: string
+          example: "+12125551234"
+        email:
+          type: string
+          format: email
+          example: john@example.com
+        hotel_id:
+          type: integer
+          example: 1
+          description: ID from GET /hotels
+        shuttle_opt_in:
+          type: boolean
+          default: true
+        arrival_airline:
+          type: string
+          example: AA
+        arrival_flight_number:
+          type: string
+          example: AA123
+        arrival_datetime:
+          type: string
+          format: date-time
+          example: "2026-06-11T14:30:00-05:00"
+        departure_airline:
+          type: string
+          example: DL
+        departure_flight_number:
+          type: string
+          example: DL456
+        departure_datetime:
+          type: string
+          format: date-time
+          example: "2026-06-14T18:00:00-05:00"
+
+    RegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        btl_code:
+          type: string
+          example: BTL-001
+        message:
+          type: string
+
+    UpdateFlightRequest:
+      type: object
+      required:
+        - btl_code
+        - direction
+      properties:
+        btl_code:
+          type: string
+          example: BTL-001
+        direction:
+          type: string
+          enum: [arrival, departure]
+        airline:
+          type: string
+          example: AA
+        flight_number:
+          type: string
+          example: AA123
+        submitted_datetime:
+          type: string
+          format: date-time
+          example: "2026-06-11T14:30:00-05:00"
+
+    FlightInfo:
+      type: object
+      nullable: true
+      properties:
+        airline:
+          type: string
+        flight_number:
+          type: string
+        submitted_datetime:
+          type: string
+          format: date-time
+        live_eta:
+          type: string
+          format: date-time
+          nullable: true
+        flight_status:
+          type: string
+          enum: [on_time, delayed, landed, cancelled, unknown]
+        delay_mins:
+          type: integer
+        polling_active:
+          type: boolean
+        leg4_pickup_from:
+          type: string
+          enum: [church, hotel]
+          nullable: true
+
+    RunSummary:
+      type: object
+      properties:
+        run_id:
+          type: string
+        run_type:
+          type: string
+        direction:
+          type: string
+          enum: [to_church, to_hotel, to_airport]
+        depart_time:
+          type: string
+          example: "08:00"
+        status:
+          type: string
+        vehicle_label:
+          type: string
+          nullable: true
+        driver_name:
+          type: string
+          nullable: true
+
+    ParticipantStatus:
+      type: object
+      properties:
+        participant:
+          type: object
+          properties:
+            btl_code:
+              type: string
+            full_name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+            status:
+              type: string
+              enum: [registered, confirmed, arrived, cancelled]
+            needs_attention:
+              type: boolean
+            shuttle_opt_in:
+              type: boolean
+            hotel:
+              type: object
+              nullable: true
+              properties:
+                hotel_name:
+                  type: string
+                pickup_address:
+                  type: string
+        arrival:
+          $ref: '#/components/schemas/FlightInfo'
+        departure:
+          $ref: '#/components/schemas/FlightInfo'
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunSummary'
+        generated_at:
+          type: string
+          format: date-time
+
+    ShuttleStatus:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        next_departure:
+          type: object
+          nullable: true
+          properties:
+            run_id:
+              type: string
+            depart_time:
+              type: string
+            direction:
+              type: string
+            conference_day:
+              type: string
+            seats_left:
+              type: integer
+            vehicle_label:
+              type: string
+              nullable: true
+            driver_name:
+              type: string
+              nullable: true
+        schedule:
+          type: object
+          description: Keyed by conference day (thursday / friday / saturday / sunday)
+          additionalProperties:
+            type: object
+            properties:
+              to_church:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunSummary'
+              to_hotel:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunSummary'
+              to_airport:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunSummary'
+        stop_order:
+          type: array
+          items:
+            type: object
+            properties:
+              stop_order:
+                type: integer
+              hotel_name:
+                type: string
+              pickup_address:
+                type: string
+        meta:
+          type: object
+          properties:
+            conference_start:
+              type: string
+              example: "2026-06-11"
+            conference_end:
+              type: string
+              example: "2026-06-14"
+            airport:
+              type: string
+              example: IND
+
+    CoordinatorContacts:
+      type: object
+      properties:
+        coordinator_1:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            whatsapp_link:
+              type: string
+        coordinator_2:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            whatsapp_link:
+              type: string
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: joba
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token, valid for 12 hours
+        expires_at:
+          type: string
+          format: date-time
+
+    DashboardResponse:
+      type: object
+      properties:
+        total_participants:
+          type: integer
+        registration_target:
+          type: integer
+          example: 400
+        today_run_count:
+          type: integer
+        active_alerts:
+          type: integer
+        flights_monitored:
+          type: integer
+        polling_active:
+          type: boolean
+
+    ParticipantSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        btl_code:
+          type: string
+          example: BTL-001
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        status:
+          type: string
+          enum: [registered, confirmed, arrived, cancelled]
+        needs_attention:
+          type: boolean
+        attention_reason:
+          type: string
+          nullable: true
+        shuttle_opt_in:
+          type: boolean
+        hotel:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+            hotel_name:
+              type: string
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ParticipantListResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantSummary'
+        total_elements:
+          type: integer
+        total_pages:
+          type: integer
+        page:
+          type: integer
+        size:
+          type: integer
+
+    Alert:
+      type: object
+      properties:
+        btl_code:
+          type: string
+        participant_name:
+          type: string
+        hotel_name:
+          type: string
+          nullable: true
+        alert_type:
+          type: string
+          example: needs_attention
+        details:
+          type: string
+          nullable: true
+        flagged_at:
+          type: string
+          format: date-time
+
+    RunDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        run_id:
+          type: string
+        run_type:
+          type: string
+          enum: [airport, shuttle]
+        direction:
+          type: string
+          enum: [to_church, to_hotel, to_airport]
+        conference_day:
+          type: string
+          enum: [thursday, friday, saturday, sunday]
+        conference_date:
+          type: string
+          format: date
+        depart_time:
+          type: string
+          example: "08:00"
+        seats_total:
+          type: integer
+        seats_filled:
+          type: integer
+        seats_left:
+          type: integer
+        status:
+          type: string
+        vehicle:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+            label:
+              type: string
+            capacity:
+              type: integer
+        driver:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            phone:
+              type: string
+        manifest_sent:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+
+    Driver:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: Joba A.
+        phone:
+          type: string
+          example: "+16418191032"
+        whatsapp:
+          type: string
+          example: "+16418191032"
+        active_from:
+          type: string
+          format: date
+          example: "2026-06-11"
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+          example: Bus 1
+        type:
+          type: string
+          enum: [bus, van]
+        capacity:
+          type: integer
+          example: 12
+
+paths:
+
+  # ── Public ──────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [Public]
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+                  db:
+                    type: string
+                    example: UP
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /hotels:
+    get:
+      tags: [Public]
+      summary: List hotels ordered by shuttle stop
+      operationId: listHotels
+      responses:
+        "200":
+          description: Hotel list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Hotel'
+
+  /coordinator-contacts:
+    get:
+      tags: [Public]
+      summary: Coordinator contact info (name, phone, WhatsApp)
+      operationId: coordinatorContacts
+      responses:
+        "200":
+          description: Coordinator contacts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoordinatorContacts'
+
+  /register:
+    post:
+      tags: [Public]
+      summary: Register a conference participant
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              full_name: John Doe
+              phone: "+12125551234"
+              email: john@example.com
+              hotel_id: 1
+              shuttle_opt_in: true
+              arrival_airline: AA
+              arrival_flight_number: AA123
+              arrival_datetime: "2026-06-11T14:30:00-05:00"
+              departure_airline: DL
+              departure_flight_number: DL456
+              departure_datetime: "2026-06-14T18:00:00-05:00"
+      responses:
+        "200":
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+              example:
+                success: true
+                btl_code: BTL-001
+                message: Registration successful
+
+  /update-flight:
+    post:
+      tags: [Public]
+      summary: Submit or update a participant's flight details
+      operationId: updateFlight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFlightRequest'
+            example:
+              btl_code: BTL-001
+              direction: arrival
+              airline: AA
+              flight_number: AA123
+              submitted_datetime: "2026-06-11T14:30:00-05:00"
+      responses:
+        "200":
+          description: Flight updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /participant-status:
+    get:
+      tags: [Public]
+      summary: Look up participant status by BTL code
+      operationId: participantStatus
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            example: BTL-001
+      responses:
+        "200":
+          description: Participant status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantStatus'
+        "400":
+          description: Participant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /shuttle-status:
+    get:
+      tags: [Public]
+      summary: Full shuttle schedule and next departure
+      operationId: shuttleStatus
+      responses:
+        "200":
+          description: Shuttle schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShuttleStatus'
+
+  /twilio-webhook:
+    post:
+      tags: [Public]
+      summary: Inbound SMS webhook (called by Twilio)
+      operationId: twilioWebhook
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                From:
+                  type: string
+                Body:
+                  type: string
+      responses:
+        "200":
+          description: TwiML acknowledgement
+          content:
+            text/xml:
+              schema:
+                type: string
+
+  # ── Admin — Auth ─────────────────────────────────────────────────────────────
+
+  /admin/login:
+    post:
+      tags: [Admin]
+      summary: Log in and receive a JWT token
+      operationId: adminLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: joba
+              password: yourpassword
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiJ9...
+                expires_at: "2026-06-11T22:00:00Z"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Invalid username or password
+
+  # ── Admin — Dashboard ─────────────────────────────────────────────────────────
+
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: Summary stats for the dashboard
+      operationId: adminDashboard
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Admin — Participants ──────────────────────────────────────────────────────
+
+  /admin/participants:
+    get:
+      tags: [Admin]
+      summary: List participants (paginated, filterable)
+      operationId: listParticipants
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [registered, confirmed, arrived, cancelled]
+        - name: hotel_id
+          in: query
+          schema:
+            type: integer
+        - name: needs_attention
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Full-text search across name, email, phone
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Paginated participant list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantListResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/participants/{btlCode}:
+    get:
+      tags: [Admin]
+      summary: Get a single participant by BTL code
+      operationId: getParticipant
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: btlCode
+          in: path
+          required: true
+          schema:
+            type: string
+            example: BTL-001
+      responses:
+        "200":
+          description: Participant detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantSummary'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/participants/{id}/hotel:
+    patch:
+      tags: [Admin]
+      summary: Update participant hotel assignment
+      operationId: updateParticipantHotel
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hotel_id:
+                  type: integer
+            example:
+              hotel_id: 2
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/participants/{id}/attention:
+    patch:
+      tags: [Admin]
+      summary: Flag or unflag a participant for attention
+      operationId: updateParticipantAttention
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                needs_attention:
+                  type: boolean
+                attention_reason:
+                  type: string
+            example:
+              needs_attention: true
+              attention_reason: Flight changed, needs manual rebooking
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Admin — Alerts ────────────────────────────────────────────────────────────
+
+  /admin/alerts:
+    get:
+      tags: [Admin]
+      summary: List participants flagged for attention
+      operationId: listAlerts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Alert list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Alert'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/alerts/{btlCode}/resolve:
+    post:
+      tags: [Admin]
+      summary: Resolve an alert (clears needs_attention flag)
+      operationId: resolveAlert
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: btlCode
+          in: path
+          required: true
+          schema:
+            type: string
+            example: BTL-001
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Admin — Runs ──────────────────────────────────────────────────────────────
+
+  /admin/runs:
+    get:
+      tags: [Admin]
+      summary: List runs for a given date (and optional direction)
+      operationId: listRuns
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: day
+          in: query
+          description: ISO date — defaults to today
+          schema:
+            type: string
+            format: date
+            example: "2026-06-11"
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [to_church, to_hotel, to_airport]
+      responses:
+        "200":
+          description: Run list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunDetail'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/runs/{id}/driver:
+    patch:
+      tags: [Admin]
+      summary: Assign a driver to a run
+      operationId: assignDriver
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                driver_id:
+                  type: integer
+            example:
+              driver_id: 1
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/runs/{id}/vehicle:
+    patch:
+      tags: [Admin]
+      summary: Assign a vehicle to a run
+      operationId: assignVehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicle_id:
+                  type: integer
+            example:
+              vehicle_id: 1
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/run-participants/boarded:
+    patch:
+      tags: [Admin]
+      summary: Mark a participant as boarded or unboarded
+      operationId: updateBoarding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - run_id
+                - participant_id
+                - boarded
+              properties:
+                run_id:
+                  type: integer
+                participant_id:
+                  type: integer
+                boarded:
+                  type: boolean
+            example:
+              run_id: 5
+              participant_id: 42
+              boarded: true
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Admin — Drivers ───────────────────────────────────────────────────────────
+
+  /admin/drivers:
+    get:
+      tags: [Admin]
+      summary: List all drivers
+      operationId: listDrivers
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Driver list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Driver'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Admin]
+      summary: Create a driver
+      operationId: createDriver
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Driver'
+            example:
+              name: Bro David
+              phone: "+13175550001"
+              whatsapp: "+13175550001"
+              active_from: "2026-06-11"
+      responses:
+        "200":
+          description: Created driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/drivers/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a driver
+      operationId: updateDriver
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Driver'
+            example:
+              phone: "+13175550002"
+      responses:
+        "200":
+          description: Updated driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Admin — Vehicles ──────────────────────────────────────────────────────────
+
+  /admin/vehicles:
+    get:
+      tags: [Admin]
+      summary: List all vehicles
+      operationId: listVehicles
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Vehicle list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Admin]
+      summary: Create a vehicle
+      operationId: createVehicle
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vehicle'
+            example:
+              label: Mini Van 3
+              type: van
+              capacity: 7
+      responses:
+        "200":
+          description: Created vehicle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/vehicles/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a vehicle
+      operationId: updateVehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vehicle'
+            example:
+              capacity: 8
+      responses:
+        "200":
+          description: Updated vehicle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
