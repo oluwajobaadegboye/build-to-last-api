@@ -10,12 +10,12 @@ import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,9 +37,6 @@ public class ParticipantController {
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
     private final NotificationConfigRepository notificationConfigRepository;
-
-    @Value("${btl.frontend-base-url}")
-    private String frontendBaseUrl;
 
     public record UpdateFlightRequest(
         @JsonProperty("btl_code") String btlCode,
