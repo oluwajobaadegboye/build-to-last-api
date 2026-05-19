@@ -11,6 +11,8 @@ spring:
       minimum-idle: 2
       maximum-pool-size: 8
       connection-timeout: 20000
+      data-source-properties:
+        stringtype: unspecified
 
   jpa:
     hibernate:
