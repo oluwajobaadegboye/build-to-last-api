@@ -10,6 +10,7 @@ import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.*;
 import com.btl.transport.vehicle.Vehicle;
 import com.btl.transport.vehicle.VehicleRepository;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,23 @@ import java.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class AdminController {
+
+    public record UpdateHotelRequest(@JsonProperty("hotel_id") Integer hotelId) {}
+
+    public record UpdateAttentionRequest(
+        @JsonProperty("needs_attention") Boolean needsAttention,
+        @JsonProperty("attention_reason") String attentionReason
+    ) {}
+
+    public record AssignDriverRequest(@JsonProperty("driver_id") Integer driverId) {}
+
+    public record AssignVehicleRequest(@JsonProperty("vehicle_id") Integer vehicleId) {}
+
+    public record BoardingRequest(
+        @JsonProperty("run_id") Integer runId,
+        @JsonProperty("participant_id") Integer participantId,
+        Boolean boarded
+    ) {}
 
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
@@ -96,12 +114,11 @@ public class AdminController {
     @PatchMapping("/participants/{id}/hotel")
     public ResponseEntity<Map<String, Object>> updateHotel(
         @PathVariable Integer id,
-        @RequestBody Map<String, Object> body
+        @RequestBody UpdateHotelRequest req
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
-        Integer hotelId = ((Number) body.get("hotel_id")).intValue();
-        // Hotel lookup — simplified; full impl would fetch hotel
+        // Hotel lookup — simplified; full impl would fetch hotel by req.hotelId()
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         return ResponseEntity.ok(Map.of("success", true));
@@ -110,12 +127,12 @@ public class AdminController {
     @PatchMapping("/participants/{id}/attention")
     public ResponseEntity<Map<String, Object>> updateAttention(
         @PathVariable Integer id,
-        @RequestBody Map<String, Object> body
+        @RequestBody UpdateAttentionRequest req
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
-        p.setNeedsAttention(Boolean.TRUE.equals(body.get("needs_attention")));
-        p.setAttentionReason((String) body.get("attention_reason"));
+        p.setNeedsAttention(Boolean.TRUE.equals(req.needsAttention()));
+        p.setAttentionReason(req.attentionReason());
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         return ResponseEntity.ok(Map.of("success", true));
@@ -170,13 +187,12 @@ public class AdminController {
     @PatchMapping("/runs/{id}/driver")
     public ResponseEntity<Map<String, Object>> assignDriver(
         @PathVariable Integer id,
-        @RequestBody Map<String, Object> body
+        @RequestBody AssignDriverRequest req
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
-        Integer driverId = ((Number) body.get("driver_id")).intValue();
-        Driver driver = driverRepository.findById(driverId)
-            .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+        Driver driver = driverRepository.findById(req.driverId())
+            .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + req.driverId()));
         run.setDriver(driver);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -186,13 +202,12 @@ public class AdminController {
     @PatchMapping("/runs/{id}/vehicle")
     public ResponseEntity<Map<String, Object>> assignVehicle(
         @PathVariable Integer id,
-        @RequestBody Map<String, Object> body
+        @RequestBody AssignVehicleRequest req
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
-        Integer vehicleId = ((Number) body.get("vehicle_id")).intValue();
-        Vehicle vehicle = vehicleRepository.findById(vehicleId)
-            .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + vehicleId));
+        Vehicle vehicle = vehicleRepository.findById(req.vehicleId())
+            .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + req.vehicleId()));
         run.setVehicle(vehicle);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -200,14 +215,11 @@ public class AdminController {
     }
 
     @PatchMapping("/run-participants/boarded")
-    public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody Map<String, Object> body) {
-        Integer runId = ((Number) body.get("run_id")).intValue();
-        Integer participantId = ((Number) body.get("participant_id")).intValue();
-        boolean boarded = Boolean.TRUE.equals(body.get("boarded"));
-
-        RunParticipantId rpId = new RunParticipantId(runId, participantId);
+    public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
+        RunParticipantId rpId = new RunParticipantId(req.runId(), req.participantId());
         RunParticipant rp = runParticipantRepository.findById(rpId)
             .orElse(RunParticipant.builder().id(rpId).build());
+        boolean boarded = Boolean.TRUE.equals(req.boarded());
         rp.setBoarded(boarded);
         rp.setBoardedAt(boarded ? OffsetDateTime.now() : null);
         runParticipantRepository.save(rp);

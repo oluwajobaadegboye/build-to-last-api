@@ -10,6 +10,7 @@ import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -18,9 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +40,28 @@ public class ParticipantController {
 
     @Value("${btl.frontend-base-url}")
     private String frontendBaseUrl;
+
+    public record RegisterRequest(
+        @JsonProperty("full_name") String fullName,
+        String phone,
+        String email,
+        @JsonProperty("hotel_id") Integer hotelId,
+        @JsonProperty("shuttle_opt_in") Boolean shuttleOptIn,
+        @JsonProperty("arrival_airline") String arrivalAirline,
+        @JsonProperty("arrival_flight_number") String arrivalFlightNumber,
+        @JsonProperty("arrival_datetime") OffsetDateTime arrivalDatetime,
+        @JsonProperty("departure_airline") String departureAirline,
+        @JsonProperty("departure_flight_number") String departureFlightNumber,
+        @JsonProperty("departure_datetime") OffsetDateTime departureDatetime
+    ) {}
+
+    public record UpdateFlightRequest(
+        @JsonProperty("btl_code") String btlCode,
+        String direction,
+        String airline,
+        @JsonProperty("flight_number") String flightNumber,
+        @JsonProperty("submitted_datetime") OffsetDateTime submittedDatetime
+    ) {}
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @GetMapping("/health")
@@ -95,27 +116,13 @@ public class ParticipantController {
 
     // ── POST /api/v1/register ─────────────────────────────────────────────
     @PostMapping("/register")
-    public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, Object> body) {
-        String fullName = (String) body.get("full_name");
-        String phone = (String) body.get("phone");
-        String email = (String) body.get("email");
-        Integer hotelId = body.get("hotel_id") != null ? ((Number) body.get("hotel_id")).intValue() : null;
-        boolean shuttleOptIn = body.get("shuttle_opt_in") == null || Boolean.TRUE.equals(body.get("shuttle_opt_in"));
-
-        String arrivalAirline = (String) body.get("arrival_airline");
-        String arrivalFlight = (String) body.get("arrival_flight_number");
-        OffsetDateTime arrivalDt = body.get("arrival_datetime") != null
-            ? OffsetDateTime.parse((String) body.get("arrival_datetime")) : null;
-
-        String departAirline = (String) body.get("departure_airline");
-        String departFlight = (String) body.get("departure_flight_number");
-        OffsetDateTime departDt = body.get("departure_datetime") != null
-            ? OffsetDateTime.parse((String) body.get("departure_datetime")) : null;
+    public ResponseEntity<Map<String, Object>> register(@RequestBody RegisterRequest req) {
+        boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
 
         Participant p = participantService.register(
-            fullName, phone, email, hotelId, shuttleOptIn,
-            arrivalAirline, arrivalFlight, arrivalDt,
-            departAirline, departFlight, departDt
+            req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
+            req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
+            req.departureAirline(), req.departureFlightNumber(), req.departureDatetime()
         );
 
         return ResponseEntity.ok(Map.of(
@@ -127,19 +134,14 @@ public class ParticipantController {
 
     // ── POST /api/v1/update-flight ────────────────────────────────────────
     @PostMapping("/update-flight")
-    public ResponseEntity<Map<String, Object>> updateFlight(@RequestBody Map<String, Object> body) {
-        String btlCode = (String) body.get("btl_code");
-        String direction = (String) body.get("direction");
-        String airline = (String) body.get("airline");
-        String flightNumber = (String) body.get("flight_number");
-        OffsetDateTime dt = body.get("submitted_datetime") != null
-            ? OffsetDateTime.parse((String) body.get("submitted_datetime")) : null;
-
-        participantService.updateFlight(btlCode, direction, airline, flightNumber, dt);
+    public ResponseEntity<Map<String, Object>> updateFlight(@RequestBody UpdateFlightRequest req) {
+        participantService.updateFlight(
+            req.btlCode(), req.direction(), req.airline(), req.flightNumber(), req.submittedDatetime()
+        );
 
         return ResponseEntity.ok(Map.of(
             "success", true,
-            "btl_code", btlCode,
+            "btl_code", req.btlCode(),
             "message", "Flight updated successfully"
         ));
     }
@@ -185,9 +187,7 @@ public class ParticipantController {
 
     // ── POST /api/v1/send-notification ────────────────────────────────────
     @PostMapping("/send-notification")
-    public ResponseEntity<Map<String, Object>> sendNotification(@RequestBody Map<String, Object> body) {
-        // Lightweight endpoint — just confirms the notification service is reachable
-        // Full template rendering in NotificationService
+    public ResponseEntity<Map<String, Object>> sendNotification() {
         return ResponseEntity.ok(Map.of(
             "success", true,
             "message", "Notification queued"
