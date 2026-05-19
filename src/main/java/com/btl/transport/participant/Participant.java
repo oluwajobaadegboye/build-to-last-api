@@ -1,8 +1,10 @@
 package com.btl.transport.participant;
 
+import com.btl.transport.common.PostgresEnumType;
 import com.btl.transport.common.enums.ParticipantStatus;
 import com.btl.transport.hotel.Hotel;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Type;
 import lombok.*;
 
 import java.time.OffsetDateTime;
@@ -31,6 +33,7 @@ public class Participant {
     @Column(name = "phone")
     private String phone;
 
+    @Type(PostgresEnumType.ParticipantStatusPgType.class)
     @Column(name = "status", columnDefinition = "participant_status")
     private ParticipantStatus status;
 

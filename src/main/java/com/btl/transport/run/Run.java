@@ -1,9 +1,11 @@
 package com.btl.transport.run;
 
+import com.btl.transport.common.PostgresEnumType;
 import com.btl.transport.common.enums.*;
 import com.btl.transport.driver.Driver;
 import com.btl.transport.vehicle.Vehicle;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Type;
 import lombok.*;
 
 import java.time.LocalDate;
@@ -25,12 +27,15 @@ public class Run {
     @Column(name = "run_id")
     private String runId;
 
+    @Type(PostgresEnumType.RunTypePgType.class)
     @Column(name = "run_type", columnDefinition = "run_type")
     private RunType runType;
 
+    @Type(PostgresEnumType.DirectionPgType.class)
     @Column(name = "direction", columnDefinition = "direction")
     private Direction direction;
 
+    @Type(PostgresEnumType.ConferenceDayPgType.class)
     @Column(name = "conference_day", columnDefinition = "conference_day")
     private ConferenceDay conferenceDay;
 
@@ -47,6 +52,7 @@ public class Run {
     @Column(name = "seats_filled")
     private Integer seatsFilled;
 
+    @Type(PostgresEnumType.RunStatusPgType.class)
     @Column(name = "status", columnDefinition = "run_status_enum")
     private RunStatusEnum status;
 

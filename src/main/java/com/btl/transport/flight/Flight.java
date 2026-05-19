@@ -1,10 +1,12 @@
 package com.btl.transport.flight;
 
+import com.btl.transport.common.PostgresEnumType;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.FlightStatusType;
 import com.btl.transport.common.enums.Leg4PickupFrom;
 import com.btl.transport.participant.Participant;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Type;
 import lombok.*;
 
 import java.time.OffsetDateTime;
@@ -34,6 +36,7 @@ public class Flight {
     @Column(name = "flight_number")
     private String flightNumber;
 
+    @Type(PostgresEnumType.DirectionPgType.class)
     @Column(name = "direction", columnDefinition = "direction")
     private Direction direction;
 
@@ -43,12 +46,14 @@ public class Flight {
     @Column(name = "live_eta")
     private OffsetDateTime liveEta;
 
+    @Type(PostgresEnumType.FlightStatusPgType.class)
     @Column(name = "flight_status", columnDefinition = "flight_status_type")
     private FlightStatusType flightStatus;
 
     @Column(name = "polling_active")
     private Boolean pollingActive;
 
+    @Type(PostgresEnumType.Leg4PickupFromPgType.class)
     @Column(name = "leg4_pickup_from", columnDefinition = "leg4_pickup_from_type")
     private Leg4PickupFrom leg4PickupFrom;
 

@@ -1,7 +1,9 @@
 package com.btl.transport.vehicle;
 
+import com.btl.transport.common.PostgresEnumType;
 import com.btl.transport.common.enums.VehicleType;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Type;
 import lombok.*;
 
 import java.time.OffsetDateTime;
@@ -21,6 +23,7 @@ public class Vehicle {
     @Column(name = "label", nullable = false)
     private String label;
 
+    @Type(PostgresEnumType.VehicleTypePgType.class)
     @Column(name = "type", columnDefinition = "vehicle_type")
     private VehicleType type;
 
