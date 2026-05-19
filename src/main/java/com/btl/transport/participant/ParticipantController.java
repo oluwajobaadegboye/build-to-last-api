@@ -10,9 +10,9 @@ import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,20 +41,6 @@ public class ParticipantController {
     @Value("${btl.frontend-base-url}")
     private String frontendBaseUrl;
 
-    public record RegisterRequest(
-        @JsonProperty("full_name") String fullName,
-        String phone,
-        String email,
-        @JsonProperty("hotel_id") Integer hotelId,
-        @JsonProperty("shuttle_opt_in") Boolean shuttleOptIn,
-        @JsonProperty("arrival_airline") String arrivalAirline,
-        @JsonProperty("arrival_flight_number") String arrivalFlightNumber,
-        @JsonProperty("arrival_datetime") OffsetDateTime arrivalDatetime,
-        @JsonProperty("departure_airline") String departureAirline,
-        @JsonProperty("departure_flight_number") String departureFlightNumber,
-        @JsonProperty("departure_datetime") OffsetDateTime departureDatetime
-    ) {}
-
     public record UpdateFlightRequest(
         @JsonProperty("btl_code") String btlCode,
         String direction,
@@ -62,6 +48,7 @@ public class ParticipantController {
         @JsonProperty("flight_number") String flightNumber,
         @JsonProperty("submitted_datetime") OffsetDateTime submittedDatetime
     ) {}
+
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @GetMapping("/health")
@@ -116,7 +103,7 @@ public class ParticipantController {
 
     // ── POST /api/v1/register ─────────────────────────────────────────────
     @PostMapping("/register")
-    public ResponseEntity<Map<String, Object>> register(@RequestBody RegisterRequest req) {
+    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
 
         Participant p = participantService.register(
