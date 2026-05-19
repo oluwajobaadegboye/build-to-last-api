@@ -21,8 +21,7 @@ public class Vehicle {
     @Column(name = "label", nullable = false)
     private String label;
 
-    // autoApply converter stores lowercase in DB
-    @Column(name = "type")
+    @Column(name = "type", columnDefinition = "vehicle_type")
     private VehicleType type;
 
     @Column(name = "capacity", nullable = false)

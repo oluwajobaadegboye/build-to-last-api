@@ -34,8 +34,7 @@ public class Flight {
     @Column(name = "flight_number")
     private String flightNumber;
 
-    // All enum fields use autoApply converters — stored lowercase in DB
-    @Column(name = "direction")
+    @Column(name = "direction", columnDefinition = "direction")
     private Direction direction;
 
     @Column(name = "submitted_datetime")
@@ -44,13 +43,13 @@ public class Flight {
     @Column(name = "live_eta")
     private OffsetDateTime liveEta;
 
-    @Column(name = "flight_status")
+    @Column(name = "flight_status", columnDefinition = "flight_status_type")
     private FlightStatusType flightStatus;
 
     @Column(name = "polling_active")
     private Boolean pollingActive;
 
-    @Column(name = "leg4_pickup_from")
+    @Column(name = "leg4_pickup_from", columnDefinition = "leg4_pickup_from_type")
     private Leg4PickupFrom leg4PickupFrom;
 
     @Column(name = "delay_mins")

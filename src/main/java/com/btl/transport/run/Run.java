@@ -25,14 +25,13 @@ public class Run {
     @Column(name = "run_id")
     private String runId;
 
-    // All enum fields use autoApply converters — stored lowercase in DB
-    @Column(name = "run_type")
+    @Column(name = "run_type", columnDefinition = "run_type")
     private RunType runType;
 
-    @Column(name = "direction")
+    @Column(name = "direction", columnDefinition = "direction")
     private Direction direction;
 
-    @Column(name = "conference_day")
+    @Column(name = "conference_day", columnDefinition = "conference_day")
     private ConferenceDay conferenceDay;
 
     @Column(name = "conference_date")
@@ -48,7 +47,7 @@ public class Run {
     @Column(name = "seats_filled")
     private Integer seatsFilled;
 
-    @Column(name = "status")
+    @Column(name = "status", columnDefinition = "run_status_enum")
     private RunStatusEnum status;
 
     @ManyToOne(fetch = FetchType.LAZY)

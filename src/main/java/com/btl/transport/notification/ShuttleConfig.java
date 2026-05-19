@@ -20,11 +20,10 @@ public class ShuttleConfig {
     @Column(name = "config_label")
     private String configLabel;
 
-    // autoApply converters handle lowercase DB ↔ uppercase Java
-    @Column(name = "conference_day")
+    @Column(name = "conference_day", columnDefinition = "conference_day")
     private ConferenceDay conferenceDay;
 
-    @Column(name = "direction")
+    @Column(name = "direction", columnDefinition = "direction")
     private Direction direction;
 
     // "HH:MM" stored as text

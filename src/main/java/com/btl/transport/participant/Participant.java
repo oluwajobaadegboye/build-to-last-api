@@ -31,8 +31,7 @@ public class Participant {
     @Column(name = "phone")
     private String phone;
 
-    // Converter auto-applied: stores lowercase in DB (e.g. "registered"), Java sees REGISTERED
-    @Column(name = "status")
+    @Column(name = "status", columnDefinition = "participant_status")
     private ParticipantStatus status;
 
     @Column(name = "needs_attention")
