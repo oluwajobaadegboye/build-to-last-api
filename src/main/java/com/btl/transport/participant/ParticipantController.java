@@ -10,6 +10,7 @@ import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -147,7 +148,7 @@ public class ParticipantController {
     @GetMapping("/participant-status")
     public ResponseEntity<Map<String, Object>> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByBtlCode(code)
-            .orElseThrow(() -> new IllegalArgumentException("Participant not found: " + code));
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
 
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival = flights.stream()

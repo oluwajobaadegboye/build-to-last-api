@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -97,7 +98,7 @@ public class FlightService {
         try {
             OffsetDateTime sched = OffsetDateTime.parse(scheduled);
             OffsetDateTime est = OffsetDateTime.parse(estimated);
-            long mins = java.time.Duration.between(sched, est).toMinutes();
+            long mins = Duration.between(sched, est).toMinutes();
             return (int) Math.max(0, mins);
         } catch (Exception e) {
             return 0;

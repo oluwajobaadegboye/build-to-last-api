@@ -58,6 +58,8 @@ btl:
         password-hash: ${ADMIN_1_PASSWORD_HASH}
       - username: ${ADMIN_2_USERNAME}
         password-hash: ${ADMIN_2_PASSWORD_HASH}
+  notifications:
+    sms-enabled: ${SMS_ENABLED:false}
   polling:
     interval-ms: 1800000
 

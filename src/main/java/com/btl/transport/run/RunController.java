@@ -2,6 +2,7 @@ package com.btl.transport.run;
 
 import com.btl.transport.common.enums.ConferenceDay;
 import com.btl.transport.common.enums.Direction;
+import com.btl.transport.common.enums.RunStatusEnum;
 import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import lombok.RequiredArgsConstructor;
@@ -95,8 +96,8 @@ public class RunController {
             .filter(r -> r.getConferenceDate().isAfter(today)
                 || r.getDepartTime().compareTo(nowTime) >= 0)
             .filter(r -> r.getStatus() != null
-                && r.getStatus() != com.btl.transport.common.enums.RunStatusEnum.CANCELLED
-                && r.getStatus() != com.btl.transport.common.enums.RunStatusEnum.COMPLETED)
+                && r.getStatus() != RunStatusEnum.CANCELLED
+                && r.getStatus() != RunStatusEnum.COMPLETED)
             .min(Comparator.comparing((Run r) -> r.getConferenceDate() != null ? r.getConferenceDate().toString() : "")
                 .thenComparing(r -> r.getDepartTime() != null ? r.getDepartTime() : ""))
             .orElse(null);

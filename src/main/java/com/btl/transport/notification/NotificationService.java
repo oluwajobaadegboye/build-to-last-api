@@ -5,8 +5,11 @@ import com.btl.transport.run.Run;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 @Service
@@ -21,19 +24,29 @@ public class NotificationService {
     @Value("${btl.frontend-base-url}")
     private String frontendBaseUrl;
 
+    @Value("${btl.notifications.sms-enabled:false}")
+    private boolean smsEnabled;
+
     public void sendRegistrationConfirmation(Participant p) {
         NotificationConfig config = getConfig();
         String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
         Map<String, String> vars = Map.of(
             "name", p.getFullName(),
             "btl_code", p.getBtlCode(),
-            "link", statusLink
+            "status_url", statusLink
         );
-        String body = renderTemplate(config.getTemplateRegistration(), vars);
-        if (p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
+        String plainBody = renderTemplate(config.getTemplateRegistration(), vars);
+        if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), plainBody);
         if (p.getEmail() != null) {
-            sendGridService.sendEmail(p.getEmail(), p.getFullName(),
-                "BTL 2026 — Transport Registration Confirmed", body);
+            String htmlTemplate = loadHtmlTemplate("email-registration.html");
+            if (htmlTemplate != null) {
+                sendGridService.sendHtmlEmail(p.getEmail(), p.getFullName(),
+                    "BTL 2026 — Transport Registration Confirmed",
+                    renderTemplate(htmlTemplate, vars), plainBody);
+            } else {
+                sendGridService.sendEmail(p.getEmail(), p.getFullName(),
+                    "BTL 2026 — Transport Registration Confirmed", plainBody);
+            }
         }
     }
 
@@ -46,8 +59,8 @@ public class NotificationService {
         );
         String template = major ? config.getTemplateDelayMajor() : config.getTemplateDelayMinor();
         String body = renderTemplate(template, vars);
-        if (p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
-        if (major && p.getEmail() != null) {
+        if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
+        if (p.getEmail() != null) {
             sendGridService.sendEmail(p.getEmail(), p.getFullName(),
                 "BTL 2026 — Flight Delay Update", body);
         }
@@ -63,7 +76,7 @@ public class NotificationService {
             "link", statusLink
         );
         String body = renderTemplate(config.getTemplateCancellation(), vars);
-        if (p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
+        if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
         if (p.getEmail() != null) {
             sendGridService.sendEmail(p.getEmail(), p.getFullName(),
                 "BTL 2026 — Flight Cancellation", body);
@@ -84,6 +97,16 @@ public class NotificationService {
             twilioService.sendWhatsApp(config.getAdminWhatsapp1(), context);
         if (config.getAdminWhatsapp2() != null)
             twilioService.sendWhatsApp(config.getAdminWhatsapp2(), context);
+    }
+
+    private String loadHtmlTemplate(String filename) {
+        try {
+            ClassPathResource resource = new ClassPathResource("templates/" + filename);
+            return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn("HTML template {} not found, falling back to plain text", filename);
+            return null;
+        }
     }
 
     public String renderTemplate(String template, Map<String, String> vars) {

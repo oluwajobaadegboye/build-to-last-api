@@ -10,6 +10,7 @@ import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.*;
 import com.btl.transport.vehicle.Vehicle;
 import com.btl.transport.vehicle.VehicleRepository;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -88,7 +89,7 @@ public class AdminController {
     @GetMapping("/participants/{btlCode}")
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new IllegalArgumentException("Not found: " + btlCode));
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
         return ResponseEntity.ok(participantSummary(p));
     }
 
@@ -98,7 +99,7 @@ public class AdminController {
         @RequestBody Map<String, Object> body
     ) {
         Participant p = participantRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
         Integer hotelId = ((Number) body.get("hotel_id")).intValue();
         // Hotel lookup — simplified; full impl would fetch hotel
         p.setUpdatedAt(OffsetDateTime.now());
@@ -112,7 +113,7 @@ public class AdminController {
         @RequestBody Map<String, Object> body
     ) {
         Participant p = participantRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
         p.setNeedsAttention(Boolean.TRUE.equals(body.get("needs_attention")));
         p.setAttentionReason((String) body.get("attention_reason"));
         p.setUpdatedAt(OffsetDateTime.now());
@@ -142,7 +143,7 @@ public class AdminController {
     @PostMapping("/alerts/{btlCode}/resolve")
     public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new IllegalArgumentException("Not found: " + btlCode));
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
         p.setUpdatedAt(OffsetDateTime.now());
@@ -172,10 +173,10 @@ public class AdminController {
         @RequestBody Map<String, Object> body
     ) {
         Run run = runRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Run not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
         Integer driverId = ((Number) body.get("driver_id")).intValue();
         Driver driver = driverRepository.findById(driverId)
-            .orElseThrow(() -> new IllegalArgumentException("Driver not found: " + driverId));
+            .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
         run.setDriver(driver);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -188,10 +189,10 @@ public class AdminController {
         @RequestBody Map<String, Object> body
     ) {
         Run run = runRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Run not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
         Integer vehicleId = ((Number) body.get("vehicle_id")).intValue();
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
-            .orElseThrow(() -> new IllegalArgumentException("Vehicle not found: " + vehicleId));
+            .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + vehicleId));
         run.setVehicle(vehicle);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -229,7 +230,7 @@ public class AdminController {
     @PatchMapping("/drivers/{id}")
     public ResponseEntity<Driver> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
         Driver d = driverRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Driver not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
         if (updates.getName() != null) d.setName(updates.getName());
         if (updates.getPhone() != null) d.setPhone(updates.getPhone());
         if (updates.getWhatsapp() != null) d.setWhatsapp(updates.getWhatsapp());
@@ -251,7 +252,7 @@ public class AdminController {
     @PatchMapping("/vehicles/{id}")
     public ResponseEntity<Vehicle> updateVehicle(@PathVariable Integer id, @RequestBody Vehicle updates) {
         Vehicle v = vehicleRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Vehicle not found: " + id));
+            .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + id));
         if (updates.getLabel() != null) v.setLabel(updates.getLabel());
         if (updates.getCapacity() != null) v.setCapacity(updates.getCapacity());
         if (updates.getType() != null) v.setType(updates.getType());
