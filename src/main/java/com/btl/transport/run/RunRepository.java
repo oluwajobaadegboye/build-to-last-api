@@ -25,7 +25,7 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
 
     @Query("""
         SELECT r FROM Run r
-        WHERE r.status = 'SCHEDULED'
+        WHERE r.status = com.btl.transport.common.enums.RunStatusEnum.SCHEDULED
           AND r.manifestSent = false
           AND r.conferenceDate = CURRENT_DATE
         """)
