@@ -15,7 +15,7 @@ public class FlightPairsValidator implements ConstraintValidator<ValidFlightPair
         boolean hasArrivalNumber  = notBlank(req.arrivalFlightNumber());
         if (hasArrivalAirline != hasArrivalNumber) {
             addViolation(ctx, "Arrival airline and flight number must both be provided",
-                hasArrivalAirline ? "arrival_flight_number" : "arrival_airline");
+                hasArrivalAirline ? "arrivalFlightNumber" : "arrivalAirline");
             valid = false;
         }
 
@@ -23,7 +23,7 @@ public class FlightPairsValidator implements ConstraintValidator<ValidFlightPair
         boolean hasDepartNumber  = notBlank(req.departureFlightNumber());
         if (hasDepartAirline != hasDepartNumber) {
             addViolation(ctx, "Departure airline and flight number must both be provided",
-                hasDepartAirline ? "departure_flight_number" : "departure_airline");
+                hasDepartAirline ? "departureFlightNumber" : "departureAirline");
             valid = false;
         }
 

@@ -10,8 +10,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.persistence.EntityNotFoundException;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestControllerAdvice
 @Slf4j
@@ -34,10 +34,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
-        String message = ex.getBindingResult().getFieldErrors().stream()
-            .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
-            .collect(Collectors.joining(", "));
-        return error(HttpStatus.BAD_REQUEST, message);
+        Map<String, String> fields = new LinkedHashMap<>();
+        ex.getBindingResult().getFieldErrors()
+            .forEach(fe -> fields.putIfAbsent(fe.getField(), fe.getDefaultMessage()));
+
+        String firstMessage = fields.values().stream().findFirst().orElse("Validation failed");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", firstMessage);
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("timestamp", OffsetDateTime.now().toString());
+        body.put("fields", fields);
+        return ResponseEntity.badRequest().body(body);
     }
 
     // Static resource misses (e.g. browser requesting favicon.ico) — 404, no noise
