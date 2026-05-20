@@ -36,8 +36,8 @@ public class ParticipantService {
     private final Leg4CalculatorService leg4Calculator;
     private final NotificationService notificationService;
 
-    @Value("${btl.frontend-base-url}")
-    private String frontendBaseUrl;
+//    @Value("${btl.frontend-base-url}")
+//    private String frontendBaseUrl;
 
     @Transactional
     public Participant register(
@@ -46,6 +46,10 @@ public class ParticipantService {
         String arrivalAirline, String arrivalFlightNumber, OffsetDateTime arrivalDatetime,
         String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime
     ) {
+        if (participantRepository.existsByEmailIgnoreCase(email)) {
+            throw new IllegalArgumentException("An account with this email address already exists");
+        }
+
         String btlCode = btlCodeService.generateNextCode();
 
         Hotel hotel = hotelId != null

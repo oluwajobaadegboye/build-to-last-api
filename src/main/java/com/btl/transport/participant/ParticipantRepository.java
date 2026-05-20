@@ -17,6 +17,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, Intege
 
     Optional<Participant> findByPhone(String phone);
 
+    boolean existsByEmailIgnoreCase(String email);
+
     long countByNeedsAttentionTrue();
 
     @Query("""

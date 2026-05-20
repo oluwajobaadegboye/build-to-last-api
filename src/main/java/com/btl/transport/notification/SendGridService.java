@@ -29,9 +29,9 @@ public class SendGridService {
         try {
             Mail mail = new Mail(new Email(fromEmail, fromName), subject,
                 new Email(toEmail, toName), new Content("text/plain", body));
-            send(mail, toEmail);
+            send(mail, toEmail, subject);
         } catch (Exception e) {
-            log.error("SendGrid send failed to {}: {}", toEmail, e.getMessage());
+            log.error("SendGrid send failed — to={} subject={}", toEmail, subject, e);
         }
     }
 
@@ -46,13 +46,14 @@ public class SendGridService {
             mail.addPersonalization(personalization);
             mail.addContent(new Content("text/plain", plainBody));
             mail.addContent(new Content("text/html", htmlBody));
-            send(mail, toEmail);
+            send(mail, toEmail, subject);
         } catch (Exception e) {
-            log.error("SendGrid send failed to {}: {}", toEmail, e.getMessage());
+            log.error("SendGrid send failed — to={} subject={}", toEmail, subject, e);
         }
     }
 
-    private void send(Mail mail, String toEmail) throws Exception {
+    private void send(Mail mail, String toEmail, String subject) throws Exception {
+        log.info("Sending email — to={} subject={}", toEmail, subject);
         SendGrid sg = new SendGrid(apiKey);
         Request request = new Request();
         request.setMethod(Method.POST);
@@ -60,9 +61,10 @@ public class SendGridService {
         request.setBody(mail.build());
         Response response = sg.api(request);
         if (response.getStatusCode() >= 400) {
-            log.error("SendGrid error {}: {}", response.getStatusCode(), response.getBody());
+            log.error("SendGrid rejected email — to={} subject={} status={} body={}",
+                toEmail, subject, response.getStatusCode(), response.getBody());
         } else {
-            log.info("Email sent to {}", toEmail);
+            log.info("Email delivered — to={} subject={} status={}", toEmail, subject, response.getStatusCode());
         }
     }
 }

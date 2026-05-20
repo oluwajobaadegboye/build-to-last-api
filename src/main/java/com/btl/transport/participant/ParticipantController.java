@@ -3,13 +3,13 @@ package com.btl.transport.participant;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.flight.Flight;
 import com.btl.transport.flight.FlightRepository;
-import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,9 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -38,7 +36,9 @@ public class ParticipantController {
     private final RunParticipantRepository runParticipantRepository;
     private final NotificationConfigRepository notificationConfigRepository;
 
-    public record UpdateFlightRequest(
+    // ── Request records ────────────────────────────────────────────────────
+
+    record UpdateFlightRequest(
         @JsonProperty("btl_code") String btlCode,
         String direction,
         String airline,
@@ -46,149 +46,194 @@ public class ParticipantController {
         @JsonProperty("submitted_datetime") OffsetDateTime submittedDatetime
     ) {}
 
+    // ── Response records ───────────────────────────────────────────────────
+
+    record HealthResponse(String status, String db, String timestamp) {}
+
+    record HotelResponse(
+        Integer id,
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("pickup_address") String pickupAddress,
+        @JsonProperty("shuttle_stop_order") Integer shuttleStopOrder
+    ) {}
+
+    record CoordinatorDto(
+        String name,
+        String phone,
+        @JsonProperty("whatsapp_link") String whatsappLink
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record CoordinatorContactsResponse(
+        @JsonProperty("coordinator_1") CoordinatorDto coordinator1,
+        @JsonProperty("coordinator_2") CoordinatorDto coordinator2
+    ) {}
+
+    record RegisterResponse(
+        boolean success,
+        @JsonProperty("btl_code") String btlCode,
+        String message
+    ) {}
+
+    record UpdateFlightResponse(
+        boolean success,
+        @JsonProperty("btl_code") String btlCode,
+        String message
+    ) {}
+
+    record NotificationResponse(boolean success, String message) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record HotelDto(
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("pickup_address") String pickupAddress
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record ParticipantDto(
+        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("full_name") String fullName,
+        String phone,
+        String email,
+        String status,
+        @JsonProperty("needs_attention") boolean needsAttention,
+        @JsonProperty("shuttle_opt_in") boolean shuttleOptIn,
+        HotelDto hotel
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record FlightDto(
+        String airline,
+        @JsonProperty("flight_number") String flightNumber,
+        @JsonProperty("submitted_datetime") String submittedDatetime,
+        @JsonProperty("live_eta") String liveEta,
+        @JsonProperty("flight_status") String flightStatus,
+        @JsonProperty("delay_mins") Integer delayMins,
+        @JsonProperty("polling_active") boolean pollingActive,
+        @JsonProperty("leg4_pickup_from") String leg4PickupFrom
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RunDto(
+        @JsonProperty("run_id") String runId,
+        @JsonProperty("run_type") String runType,
+        String direction,
+        @JsonProperty("depart_time") String departTime,
+        String status,
+        @JsonProperty("vehicle_label") String vehicleLabel,
+        @JsonProperty("driver_name") String driverName
+    ) {}
+
+    record ParticipantStatusResponse(
+        ParticipantDto participant,
+        FlightDto arrival,
+        FlightDto departure,
+        List<RunDto> runs,
+        @JsonProperty("generated_at") String generatedAt
+    ) {}
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> health() {
-        return ResponseEntity.ok(Map.of(
-            "status", "UP",
-            "db", "UP",
-            "timestamp", OffsetDateTime.now().toString()
-        ));
+    public ResponseEntity<HealthResponse> health() {
+        return ResponseEntity.ok(new HealthResponse("UP", "UP", OffsetDateTime.now().toString()));
     }
 
     // ── GET /api/v1/hotels ─────────────────────────────────────────────────
     @GetMapping("/hotels")
-    public ResponseEntity<List<Map<String, Object>>> getHotels() {
-        List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
-        List<Map<String, Object>> result = hotels.stream().map(h -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", h.getId());
-            m.put("hotel_name", h.getHotelName());
-            m.put("pickup_address", h.getPickupAddress());
-            m.put("shuttle_stop_order", h.getShuttleStopOrder());
-            return m;
-        }).toList();
-        return ResponseEntity.ok(result);
+    public ResponseEntity<List<HotelResponse>> getHotels() {
+        return ResponseEntity.ok(
+            hotelRepository.findAllByOrderByShuttleStopOrderAsc().stream()
+                .map(h -> new HotelResponse(h.getId(), h.getHotelName(), h.getPickupAddress(), h.getShuttleStopOrder()))
+                .toList()
+        );
     }
 
     // ── GET /api/v1/coordinator-contacts ──────────────────────────────────
     @GetMapping("/coordinator-contacts")
-    public ResponseEntity<Map<String, Object>> coordinatorContacts() {
-        NotificationConfig config = notificationConfigRepository.findByConfigKey("main").orElse(null);
-        if (config == null) return ResponseEntity.ok(Map.of());
+    public ResponseEntity<CoordinatorContactsResponse> coordinatorContacts() {
+        NotificationConfig cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
+        if (cfg == null) return ResponseEntity.ok(new CoordinatorContactsResponse(null, null));
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        if (config.getAdminName1() != null) {
-            result.put("coordinator_1", Map.of(
-                "name", config.getAdminName1(),
-                "phone", config.getAdminPhone1() != null ? config.getAdminPhone1() : "",
-                "whatsapp_link", config.getAdminWhatsapp1() != null
-                    ? "https://wa.me/" + config.getAdminWhatsapp1().replaceAll("[^0-9]", "") : ""
-            ));
-        }
-        if (config.getAdminName2() != null) {
-            result.put("coordinator_2", Map.of(
-                "name", config.getAdminName2(),
-                "phone", config.getAdminPhone2() != null ? config.getAdminPhone2() : "",
-                "whatsapp_link", config.getAdminWhatsapp2() != null
-                    ? "https://wa.me/" + config.getAdminWhatsapp2().replaceAll("[^0-9]", "") : ""
-            ));
-        }
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(new CoordinatorContactsResponse(
+            toCoordinatorDto(cfg.getAdminName1(), cfg.getAdminPhone1(), cfg.getAdminWhatsapp1()),
+            toCoordinatorDto(cfg.getAdminName2(), cfg.getAdminPhone2(), cfg.getAdminWhatsapp2())
+        ));
     }
 
     // ── POST /api/v1/register ─────────────────────────────────────────────
     @PostMapping("/register")
-    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest req) {
+    public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
-
         Participant p = participantService.register(
             req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
             req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
             req.departureAirline(), req.departureFlightNumber(), req.departureDatetime()
         );
-
-        return ResponseEntity.ok(Map.of(
-            "success", true,
-            "btl_code", p.getBtlCode(),
-            "message", "Registration successful"
-        ));
+        return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
     }
 
     // ── POST /api/v1/update-flight ────────────────────────────────────────
     @PostMapping("/update-flight")
-    public ResponseEntity<Map<String, Object>> updateFlight(@RequestBody UpdateFlightRequest req) {
+    public ResponseEntity<UpdateFlightResponse> updateFlight(@RequestBody UpdateFlightRequest req) {
         participantService.updateFlight(
             req.btlCode(), req.direction(), req.airline(), req.flightNumber(), req.submittedDatetime()
         );
-
-        return ResponseEntity.ok(Map.of(
-            "success", true,
-            "btl_code", req.btlCode(),
-            "message", "Flight updated successfully"
-        ));
+        return ResponseEntity.ok(new UpdateFlightResponse(true, req.btlCode(), "Flight updated successfully"));
     }
 
     // ── GET /api/v1/participant-status ────────────────────────────────────
     @GetMapping("/participant-status")
-    public ResponseEntity<Map<String, Object>> participantStatus(@RequestParam("code") String code) {
+    public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
 
         List<Flight> flights = flightRepository.findByParticipant(p);
-        Flight arrival = flights.stream()
-            .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
-        Flight departure = flights.stream()
-            .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
+        Flight arrival   = flights.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
+        Flight departure = flights.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
 
-        List<Run> runs = getRunsForParticipant(p.getId());
+        HotelDto hotelDto = p.getHotel() == null ? null : new HotelDto(
+            p.getHotel().getHotelName(),
+            p.getHotel().getPickupAddress() != null ? p.getHotel().getPickupAddress() : ""
+        );
 
-        Map<String, Object> participantMap = new LinkedHashMap<>();
-        participantMap.put("btl_code", p.getBtlCode());
-        participantMap.put("full_name", p.getFullName());
-        participantMap.put("phone", p.getPhone());
-        participantMap.put("email", p.getEmail());
-        participantMap.put("status", p.getStatus() != null ? p.getStatus().name().toLowerCase() : null);
-        participantMap.put("needs_attention", Boolean.TRUE.equals(p.getNeedsAttention()));
-        participantMap.put("shuttle_opt_in", Boolean.TRUE.equals(p.getShuttleOptIn()));
-        if (p.getHotel() != null) {
-            participantMap.put("hotel", Map.of(
-                "hotel_name", p.getHotel().getHotelName(),
-                "pickup_address", p.getHotel().getPickupAddress() != null ? p.getHotel().getPickupAddress() : ""
-            ));
-        }
+        ParticipantDto participantDto = new ParticipantDto(
+            p.getBtlCode(),
+            p.getFullName(),
+            p.getPhone(),
+            p.getEmail(),
+            p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,
+            Boolean.TRUE.equals(p.getNeedsAttention()),
+            Boolean.TRUE.equals(p.getShuttleOptIn()),
+            hotelDto
+        );
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("participant", participantMap);
-        result.put("arrival", flightMap(arrival));
-        result.put("departure", flightMap(departure));
-        result.put("runs", runs.stream().map(this::runMap).toList());
-        result.put("generated_at", OffsetDateTime.now().toString());
+        List<RunDto> runs = getRunsForParticipant(p.getId()).stream().map(this::toRunDto).toList();
 
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(new ParticipantStatusResponse(
+            participantDto,
+            toFlightDto(arrival),
+            toFlightDto(departure),
+            runs,
+            OffsetDateTime.now().toString()
+        ));
     }
 
     // ── POST /api/v1/send-notification ────────────────────────────────────
     @PostMapping("/send-notification")
-    public ResponseEntity<Map<String, Object>> sendNotification() {
-        return ResponseEntity.ok(Map.of(
-            "success", true,
-            "message", "Notification queued"
-        ));
+    public ResponseEntity<NotificationResponse> sendNotification() {
+        return ResponseEntity.ok(new NotificationResponse(true, "Notification queued"));
     }
 
     // ── POST /api/v1/twilio-webhook ───────────────────────────────────────
     @PostMapping(value = "/twilio-webhook", produces = "text/xml")
     public ResponseEntity<String> twilioWebhook(HttpServletRequest request) {
-        String fromPhone = request.getParameter("From");
+        String fromPhone  = request.getParameter("From");
         String messageBody = request.getParameter("Body");
 
         if (fromPhone != null) {
-            participantRepository.findByPhone(fromPhone).ifPresent(p -> {
-                log.info("Inbound SMS from {} ({}): {}", p.getBtlCode(), fromPhone, messageBody);
-                // Forward to coordinators handled by NotificationService
-            });
+            participantRepository.findByPhone(fromPhone).ifPresent(p ->
+                log.info("Inbound SMS from {} ({}): {}", p.getBtlCode(), fromPhone, messageBody)
+            );
         }
 
         return ResponseEntity.ok(
@@ -198,32 +243,39 @@ public class ParticipantController {
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private Map<String, Object> flightMap(Flight f) {
-        if (f == null) return null;
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("airline", f.getAirline());
-        m.put("flight_number", f.getFlightNumber());
-        m.put("submitted_datetime", f.getSubmittedDatetime() != null ? f.getSubmittedDatetime().toString() : null);
-        m.put("live_eta", f.getLiveEta() != null ? f.getLiveEta().toString() : null);
-        m.put("flight_status", f.getFlightStatus() != null ? f.getFlightStatus().name().toLowerCase() : "unknown");
-        m.put("delay_mins", f.getDelayMins() != null ? f.getDelayMins() : 0);
-        m.put("polling_active", Boolean.TRUE.equals(f.getPollingActive()));
-        if (f.getLeg4PickupFrom() != null) {
-            m.put("leg4_pickup_from", f.getLeg4PickupFrom().name().toLowerCase());
-        }
-        return m;
+    private CoordinatorDto toCoordinatorDto(String name, String phone, String whatsapp) {
+        if (name == null) return null;
+        return new CoordinatorDto(
+            name,
+            phone != null ? phone : "",
+            whatsapp != null ? "https://wa.me/" + whatsapp.replaceAll("[^0-9]", "") : ""
+        );
     }
 
-    private Map<String, Object> runMap(Run r) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("run_id", r.getRunId());
-        m.put("run_type", r.getRunType() != null ? r.getRunType().name().toLowerCase() : null);
-        m.put("direction", r.getDirection() != null ? r.getDirection().name().toLowerCase() : null);
-        m.put("depart_time", r.getDepartTime());
-        m.put("status", r.getStatus() != null ? r.getStatus().name().toLowerCase() : null);
-        if (r.getVehicle() != null) m.put("vehicle_label", r.getVehicle().getLabel());
-        if (r.getDriver() != null) m.put("driver_name", r.getDriver().getName());
-        return m;
+    private FlightDto toFlightDto(Flight f) {
+        if (f == null) return null;
+        return new FlightDto(
+            f.getAirline(),
+            f.getFlightNumber(),
+            f.getSubmittedDatetime() != null ? f.getSubmittedDatetime().toString() : null,
+            f.getLiveEta() != null ? f.getLiveEta().toString() : null,
+            f.getFlightStatus() != null ? f.getFlightStatus().name().toLowerCase() : "unknown",
+            f.getDelayMins() != null ? f.getDelayMins() : 0,
+            Boolean.TRUE.equals(f.getPollingActive()),
+            f.getLeg4PickupFrom() != null ? f.getLeg4PickupFrom().name().toLowerCase() : null
+        );
+    }
+
+    private RunDto toRunDto(Run r) {
+        return new RunDto(
+            r.getRunId(),
+            r.getRunType() != null ? r.getRunType().name().toLowerCase() : null,
+            r.getDirection() != null ? r.getDirection().name().toLowerCase() : null,
+            r.getDepartTime(),
+            r.getStatus() != null ? r.getStatus().name().toLowerCase() : null,
+            r.getVehicle() != null ? r.getVehicle().getLabel() : null,
+            r.getDriver() != null ? r.getDriver().getName() : null
+        );
     }
 
     private List<Run> getRunsForParticipant(Integer participantId) {

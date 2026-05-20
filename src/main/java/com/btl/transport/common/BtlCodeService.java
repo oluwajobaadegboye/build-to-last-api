@@ -11,9 +11,11 @@ public class BtlCodeService {
     private final JdbcTemplate jdbcTemplate;
 
     public String generateNextCode() {
-        Long seq = jdbcTemplate.queryForObject(
-            "SELECT nextval('btl_code_seq')", Long.class
+        Long next = jdbcTemplate.queryForObject(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM 5) AS INTEGER)), 0) + 1" +
+            " FROM participants WHERE btl_code ~ '^BTL-[0-9]+$'",
+            Long.class
         );
-        return String.format("BTL-%03d", seq);
+        return String.format("BTL-%03d", next);
     }
 }
