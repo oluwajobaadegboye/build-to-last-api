@@ -36,9 +36,37 @@ public class FlightService {
         FlightStatusType newStatus = parseStatus(data.flight_status());
         int newDelayMins = calculateDelayMins(data);
 
+        // Detect reschedule: AviationStack's scheduled time has shifted >60 min from what was submitted
+        OffsetDateTime oldScheduled = flight.getSubmittedDatetime();
+        OffsetDateTime newScheduled = null;
+        boolean isRescheduled = false;
+        if (data.arrival() != null && data.arrival().scheduled() != null) {
+            try {
+                newScheduled = OffsetDateTime.parse(data.arrival().scheduled());
+                long diffMins = Math.abs(Duration.between(newScheduled, oldScheduled).toMinutes());
+                if (diffMins > 60) {
+                    flight.setSubmittedDatetime(newScheduled);
+                    isRescheduled = true;
+                    log.info("Flight {} rescheduled: {} → {}", flight.getFlightNumber(), oldScheduled, newScheduled);
+                }
+            } catch (Exception e) {
+                log.warn("Could not parse scheduled time for reschedule check on {}", flight.getFlightNumber());
+            }
+        }
+
         flight.setFlightStatus(newStatus);
         flight.setDelayMins(newDelayMins);
         flight.setLastPolledAt(OffsetDateTime.now());
+
+        if (isRescheduled) {
+            // Keep polling active so the rescheduled flight stays in the window on its new date
+            flight.setPollingActive(true);
+        } else if (newStatus == FlightStatusType.ACTIVE
+                || newStatus == FlightStatusType.LANDED
+                || newStatus == FlightStatusType.CANCELLED
+                || newStatus == FlightStatusType.DIVERTED) {
+            flight.setPollingActive(false);
+        }
 
         if (data.arrival() != null) {
             String eta = data.arrival().estimated() != null
@@ -56,7 +84,11 @@ public class FlightService {
         flightRepository.save(flight);
 
         Participant p = flight.getParticipant();
-        if (newStatus == FlightStatusType.CANCELLED && previousStatus != FlightStatusType.CANCELLED) {
+        if (isRescheduled) {
+            p.setNeedsAttention(true);
+            p.setAttentionReason("Flight " + flight.getFlightNumber() + " rescheduled to " + newScheduled);
+            notificationService.sendRescheduleNotification(p, flight.getFlightNumber(), oldScheduled, newScheduled);
+        } else if (newStatus == FlightStatusType.CANCELLED && previousStatus != FlightStatusType.CANCELLED) {
             p.setNeedsAttention(true);
             p.setAttentionReason("Flight " + flight.getFlightNumber() + " cancelled");
             notificationService.sendCancellationNotification(p, flight.getFlightNumber());
@@ -66,7 +98,8 @@ public class FlightService {
             notificationService.sendDelayNotification(p, flight.getFlightNumber(), newDelayMins, major);
         }
 
-        log.debug("Updated flight {} status={} delayMins={}", flight.getFlightNumber(), newStatus, newDelayMins);
+        log.debug("Updated flight {} status={} delayMins={} rescheduled={}",
+            flight.getFlightNumber(), newStatus, newDelayMins, isRescheduled);
     }
 
     @Transactional
@@ -77,11 +110,21 @@ public class FlightService {
         log.info("Polling window closed — {} flights deactivated", active.size());
     }
 
+    @Transactional
+    public void deactivatePastDayFlights(OffsetDateTime startOfToday) {
+        List<Flight> stale = flightRepository.findStaleActiveFlights(startOfToday);
+        if (!stale.isEmpty()) {
+            stale.forEach(f -> f.setPollingActive(false));
+            flightRepository.saveAll(stale);
+            log.info("Deactivated {} flights from previous days", stale.size());
+        }
+    }
+
     private FlightStatusType parseStatus(String status) {
         if (status == null) return FlightStatusType.UNKNOWN;
         return switch (status.toLowerCase()) {
             case "scheduled" -> FlightStatusType.SCHEDULED;
-            case "active", "en-route" -> FlightStatusType.SCHEDULED;
+            case "active", "en-route" -> FlightStatusType.ACTIVE;
             case "landed" -> FlightStatusType.LANDED;
             case "cancelled" -> FlightStatusType.CANCELLED;
             case "diverted" -> FlightStatusType.DIVERTED;

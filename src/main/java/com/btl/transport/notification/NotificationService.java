@@ -10,6 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @Service
@@ -66,6 +69,25 @@ public class NotificationService {
         }
     }
 
+    public void sendRescheduleNotification(Participant p, String flightNumber,
+                                            OffsetDateTime oldTime, OffsetDateTime newTime) {
+        NotificationConfig config = getConfig();
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
+        Map<String, String> vars = Map.of(
+            "name", p.getFullName(),
+            "flight", flightNumber,
+            "old_time", formatDateTime(oldTime),
+            "new_time", formatDateTime(newTime),
+            "link", statusLink
+        );
+        String body = renderTemplate(config.getTemplateReschedule(), vars);
+        if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
+        if (p.getEmail() != null) {
+            sendGridService.sendEmail(p.getEmail(), p.getFullName(),
+                "BTL 2026 — Flight Rescheduled", body);
+        }
+    }
+
     public void sendCancellationNotification(Participant p, String flightNumber) {
         NotificationConfig config = getConfig();
         String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
@@ -97,6 +119,12 @@ public class NotificationService {
             twilioService.sendWhatsApp(config.getAdminWhatsapp1(), context);
         if (config.getAdminWhatsapp2() != null)
             twilioService.sendWhatsApp(config.getAdminWhatsapp2(), context);
+    }
+
+    private String formatDateTime(OffsetDateTime time) {
+        if (time == null) return "unknown";
+        return time.atZoneSameInstant(ZoneId.of("America/Indiana/Indianapolis"))
+                   .format(DateTimeFormatter.ofPattern("MMM d 'at' h:mm a z"));
     }
 
     private String loadHtmlTemplate(String filename) {

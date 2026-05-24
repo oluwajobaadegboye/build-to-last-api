@@ -64,6 +64,8 @@ btl:
     sms-enabled: ${SMS_ENABLED:false}
   polling:
     interval-ms: 1800000
+    pre-arrival-hours: 6
+    post-arrival-hours: 2
 
 aviationstack:
   api-key: ${AVIATIONSTACK_API_KEY:test-key}
@@ -76,13 +78,16 @@ twilio:
   whatsapp-from: ${TWILIO_WHATSAPP_FROM:whatsapp:+10000000000}
 
 sendgrid:
-  api-key: ${SENDGRID_API_KEY:test-key}
+  api-key: ${SENDGRID_API_KEY:}
   # info@theevicta.com
-  from-email: ${SENDGRID_FROM_EMAIL:transport@btl2026.com}
+  from-email: ${SENDGRID_FROM_EMAIL:info@theevicta.com}
   from-name: "BTL 2026 Transport"
 
 cors:
   allowed-origins: ${FRONTEND_BASE_URL:http://localhost:5173}
+
+rate-limit:
+  enabled: true   # set false in dev/test to bypass all rate limiting
 
 springdoc:
   api-docs:

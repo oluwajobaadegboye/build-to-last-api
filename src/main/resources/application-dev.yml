@@ -31,6 +31,6 @@ btl:
     users:
       # Generate a hash: htpasswd -bnBC 10 "" yourpassword | tr -d ':\n'
       - username: ${ADMIN_1_USERNAME:admin}
-        password-hash: ${ADMIN_1_PASSWORD_HASH:REPLACE_WITH_BCRYPT_HASH}
+        password-hash: ${ADMIN_1_PASSWORD_HASH:$2y$10$4sZ0f9Uc9tUunjd4jyhmdeVpA8BLFfz9zDT.HPA5dFeO0X00Ti5Xy}
       - username: ${ADMIN_2_USERNAME:admin2}
-        password-hash: ${ADMIN_2_PASSWORD_HASH:REPLACE_WITH_BCRYPT_HASH}
+        password-hash: ${ADMIN_2_PASSWORD_HASH:$2y$10$I3pP/4JakOipysQwQMhNS.COsHS2byT7C6cO9Q1/HcYMx7UbVanwy}
