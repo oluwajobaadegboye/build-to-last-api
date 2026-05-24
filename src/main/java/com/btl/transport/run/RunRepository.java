@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface RunRepository extends JpaRepository<Run, Integer> {
@@ -18,6 +19,12 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     List<Run> findByConferenceDateOrderByDepartTimeAsc(LocalDate date);
 
     List<Run> findByConferenceDateAndDirectionOrderByDepartTimeAsc(LocalDate date, Direction direction);
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.conferenceDate = :date ORDER BY r.departTime ASC")
+    List<Run> findByConferenceDateWithDetailsOrderByDepartTimeAsc(@Param("date") LocalDate date);
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.conferenceDate = :date AND r.direction = :direction ORDER BY r.departTime ASC")
+    List<Run> findByConferenceDateAndDirectionWithDetailsOrderByDepartTimeAsc(@Param("date") LocalDate date, @Param("direction") Direction direction);
 
     List<Run> findByConferenceDayAndDirection(ConferenceDay day, Direction direction);
 
@@ -32,6 +39,10 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     List<Run> findScheduledRunsForToday();
 
     long countByConferenceDate(LocalDate date);
+
+    Optional<Run> findByRunId(String runId);
+
+    List<Run> findByDriverIdOrderByConferenceDateAscDepartTimeAsc(Integer driverId);
 
     @Query("""
         SELECT r FROM Run r
