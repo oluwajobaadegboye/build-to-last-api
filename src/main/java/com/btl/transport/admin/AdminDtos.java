@@ -70,7 +70,8 @@ public final class AdminDtos {
         @JsonProperty("driver_id") String driverId,
         String name,
         String phone,
-        String whatsapp
+        String whatsapp,
+        String email
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -144,4 +145,53 @@ public final class AdminDtos {
     ) {}
 
     record SuccessResponse(boolean success) {}
+
+    record ProgramResponse(
+        String id,
+        String name,
+        String ini,
+        String type,
+        @JsonProperty("start_date") String startDate,
+        @JsonProperty("end_date")   String endDate,
+        String phase,
+        String venue,
+        @JsonProperty("venue_addr") String venueAddr,
+        String airport,
+        Object hotels,
+        @JsonProperty("morning_runs") Object morningRuns,
+        @JsonProperty("evening_runs") Object eveningRuns,
+        Object rules,
+        @JsonProperty("created_at") String createdAt
+    ) {}
+
+    record CreateProgramRequest(
+        String id,
+        String name,
+        String ini,
+        String type,
+        @JsonProperty("start_date") String startDate,
+        @JsonProperty("end_date")   String endDate,
+        String venue,
+        @JsonProperty("venue_addr") String venueAddr,
+        String airport,
+        Object hotels,
+        @JsonProperty("morning_runs") Object morningRuns,
+        @JsonProperty("evening_runs") Object eveningRuns,
+        Object rules
+    ) {}
+
+    record UpdateProgramRequest(
+        String name,
+        String type,
+        @JsonProperty("start_date") String startDate,
+        @JsonProperty("end_date")   String endDate,
+        String phase,
+        String venue,
+        @JsonProperty("venue_addr") String venueAddr,
+        String airport,
+        Object hotels,
+        @JsonProperty("morning_runs") Object morningRuns,
+        @JsonProperty("evening_runs") Object eveningRuns,
+        Object rules
+    ) {}
 }

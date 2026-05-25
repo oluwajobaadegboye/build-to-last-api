@@ -176,7 +176,8 @@ public class ParticipantController {
             r.getDepartTime(),
             r.getStatus() != null ? r.getStatus().name().toLowerCase() : null,
             r.getVehicle() != null ? r.getVehicle().getLabel() : null,
-            r.getDriver() != null ? r.getDriver().getName() : null
+            r.getDriver() != null ? r.getDriver().getName() : null,
+            r.getDriver() != null ? r.getDriver().getPhone() : null
         );
     }
 
@@ -184,6 +185,6 @@ public class ParticipantController {
         List<Integer> runIds = runParticipantRepository.findByIdParticipantId(participantId)
             .stream().map(rp -> rp.getId().getRunId()).toList();
         if (runIds.isEmpty()) return List.of();
-        return runRepository.findAllById(runIds);
+        return runRepository.findAllByIdWithDetails(runIds);
     }
 }

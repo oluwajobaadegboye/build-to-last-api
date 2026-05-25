@@ -1,5 +1,8 @@
 package com.btl.transport.admin;
 
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.btl.transport.common.enums.ConferenceDay;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.ParticipantStatus;
@@ -16,6 +19,7 @@ import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.notification.ShuttleConfig;
 import com.btl.transport.notification.ShuttleConfigRepository;
+import com.btl.transport.notification.SendGridService;
 import com.btl.transport.notification.TwilioService;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
@@ -26,9 +30,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import java.util.stream.Stream;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -94,6 +96,9 @@ public class AdminController {
     private final AirportConfigRepository airportConfigRepository;
     private final NotificationConfigRepository notificationConfigRepository;
     private final TwilioService twilioService;
+    private final SendGridService sendGridService;
+    private final ProgramRepository programRepository;
+    private final ObjectMapper objectMapper;
 
     // ── Dashboard ──────────────────────────────────────────────────────────
     @GetMapping("/dashboard")
@@ -128,18 +133,30 @@ public class AdminController {
         ParticipantStatus statusEnum = status != null
             ? ParticipantStatus.valueOf(status.toUpperCase()) : null;
 
-        Page<Participant> pageResult = participantRepository.findWithFilters(
-            statusEnum, hotelId, needsAttention, search,
-            PageRequest.of(page, size, Sort.by("createdAt").descending())
-        );
+        List<Participant> all = participantRepository.findAllWithHotel();
 
-        List<Map<String, Object>> items = pageResult.getContent().stream()
+        Stream<Participant> stream = all.stream();
+        if (statusEnum != null) stream = stream.filter(p -> statusEnum.equals(p.getStatus()));
+        if (hotelId != null) stream = stream.filter(p -> p.getHotel() != null && hotelId.equals(p.getHotel().getId()));
+        if (Boolean.TRUE.equals(needsAttention)) stream = stream.filter(p -> Boolean.TRUE.equals(p.getNeedsAttention()));
+        if (search != null && !search.isBlank()) {
+            String lc = search.toLowerCase();
+            stream = stream.filter(p ->
+                (p.getFullName() != null && p.getFullName().toLowerCase().contains(lc)) ||
+                (p.getBtlCode() != null && p.getBtlCode().toLowerCase().contains(lc)));
+        }
+        List<Participant> filtered = stream.toList();
+
+        int total = filtered.size();
+        int fromIdx = Math.min(page * size, total);
+        int toIdx   = Math.min(fromIdx + size, total);
+        List<Map<String, Object>> items = filtered.subList(fromIdx, toIdx).stream()
             .map(this::participantSummary).toList();
 
         return ResponseEntity.ok(Map.of(
             "content", items,
-            "total_elements", pageResult.getTotalElements(),
-            "total_pages", pageResult.getTotalPages(),
+            "total_elements", (long) total,
+            "total_pages", size > 0 ? (int) Math.ceil((double) total / size) : 0,
             "page", page,
             "size", size
         ));
@@ -272,24 +289,41 @@ public class AdminController {
 
     // ── Drivers ───────────────────────────────────────────────────────────
     @GetMapping("/drivers")
-    public ResponseEntity<List<Driver>> listDrivers() {
-        return ResponseEntity.ok(driverRepository.findAll());
+    public ResponseEntity<List<AdminDtos.DriverAdminDto>> listDrivers() {
+        return ResponseEntity.ok(driverRepository.findAll().stream()
+            .map(this::toDriverDto).toList());
     }
 
     @PostMapping("/drivers")
-    public ResponseEntity<Driver> createDriver(@RequestBody Driver driver) {
+    public ResponseEntity<AdminDtos.DriverAdminDto> createDriver(@RequestBody Driver driver) {
         driver.setCreatedAt(OffsetDateTime.now());
-        return ResponseEntity.ok(driverRepository.save(driver));
+        return ResponseEntity.ok(toDriverDto(driverRepository.save(driver)));
     }
 
     @PatchMapping("/drivers/{id}")
-    public ResponseEntity<Driver> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
+    public ResponseEntity<AdminDtos.DriverAdminDto> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
         Driver d = driverRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
         if (updates.getName() != null) d.setName(updates.getName());
         if (updates.getPhone() != null) d.setPhone(updates.getPhone());
         if (updates.getWhatsapp() != null) d.setWhatsapp(updates.getWhatsapp());
-        return ResponseEntity.ok(driverRepository.save(d));
+        if (updates.getEmail() != null) d.setEmail(updates.getEmail());
+        return ResponseEntity.ok(toDriverDto(driverRepository.save(d)));
+    }
+
+    // ── Resend code ──────────────────────────────────────────────────────────
+    @PostMapping("/participants/{btlCode}/resend-code")
+    public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
+        Participant p = participantRepository.findByBtlCode(btlCode)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        if (p.getEmail() != null && !p.getEmail().isBlank()) {
+            String body = "Your BTL Transport code is: " + p.getBtlCode()
+                + "\n\nCheck your transport status at: "
+                + "https://btl.transport/status?code=" + p.getBtlCode();
+            sendGridService.sendEmail(p.getEmail(), p.getFullName(),
+                "Your BTL Transport Code", body);
+        }
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
     // ── Vehicles ──────────────────────────────────────────────────────────
@@ -586,7 +620,7 @@ public class AdminController {
         m.put("btl_code", p.getBtlCode());
         m.put("full_name", p.getFullName());
         m.put("email", p.getEmail());
-        m.put("phone", p.getPhone());
+        m.put("phone_whatsapp", p.getPhone());
         m.put("status", p.getStatus() != null ? p.getStatus().name().toLowerCase() : null);
         m.put("needs_attention", Boolean.TRUE.equals(p.getNeedsAttention()));
         m.put("attention_reason", p.getAttentionReason());
@@ -625,6 +659,17 @@ public class AdminController {
         ) : null);
         m.put("manifest_sent", Boolean.TRUE.equals(r.getManifestSent()));
         m.put("updated_at", r.getUpdatedAt() != null ? r.getUpdatedAt().toString() : null);
+        m.put("pickup_location", r.getPickupLocation());
+        m.put("dropoff_location", r.getDropoffLocation());
+
+        List<RunParticipant> rps = runParticipantRepository.findByIdRunId(r.getId());
+        List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
+        List<Map<String, Object>> participants = pids.isEmpty()
+            ? List.of()
+            : participantRepository.findAllById(pids).stream()
+                .map(this::participantSummary)
+                .toList();
+        m.put("participants", participants);
         return m;
     }
 
@@ -679,7 +724,7 @@ public class AdminController {
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {
         if (d == null) return null;
         return new AdminDtos.DriverAdminDto(
-            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp()
+            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail()
         );
     }
 
@@ -708,4 +753,122 @@ public class AdminController {
         long count = runRepository.count() + 1;
         return String.format("RUN-%03d", count);
     }
+
+    // ── Programs ──────────────────────────────────────────────────────────
+
+    @GetMapping("/programs")
+    public ResponseEntity<List<AdminDtos.ProgramResponse>> listPrograms() {
+        List<AdminDtos.ProgramResponse> result = programRepository
+            .findAllByOrderByCreatedAtDesc()
+            .stream()
+            .map(this::toProgramDto)
+            .toList();
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/programs")
+    @Transactional
+    public ResponseEntity<AdminDtos.ProgramResponse> createProgram(
+            @RequestBody AdminDtos.CreateProgramRequest req) {
+        String rulesJson = rulesJson(req.rules());
+        Map<String, Object> rules = parseRules(rulesJson);
+        Program p = Program.builder()
+            .id(req.id() != null ? req.id() : "p_" + System.currentTimeMillis())
+            .name(req.name())
+            .ini(req.ini())
+            .type(req.type() != null ? req.type() : "Conference")
+            .startDate(req.startDate())
+            .endDate(req.endDate())
+            .phase("setup")
+            .venue(req.venue())
+            .venueAddr(req.venueAddr())
+            .airport(req.airport())
+            .hotels(toJsonString(req.hotels()))
+            .morningRuns(toJsonString(req.morningRuns()))
+            .eveningRuns(toJsonString(req.eveningRuns()))
+            .ruleWindow(rules != null ? String.valueOf(rules.getOrDefault("window", "75")) : "75")
+            .ruleCap(rules != null ? String.valueOf(rules.getOrDefault("cap", "22")) : "22")
+            .ruleBuffer(rules != null ? String.valueOf(rules.getOrDefault("buffer", "60")) : "60")
+            .createdAt(OffsetDateTime.now())
+            .updatedAt(OffsetDateTime.now())
+            .build();
+        programRepository.save(p);
+        return ResponseEntity.ok(toProgramDto(p));
+    }
+
+    @PatchMapping("/programs/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.ProgramResponse> updateProgram(
+            @PathVariable String id,
+            @RequestBody AdminDtos.UpdateProgramRequest req) {
+        Program p = programRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + id));
+        if (req.name()      != null) p.setName(req.name());
+        if (req.type()      != null) p.setType(req.type());
+        if (req.startDate() != null) p.setStartDate(req.startDate());
+        if (req.endDate()   != null) p.setEndDate(req.endDate());
+        if (req.phase()     != null) p.setPhase(req.phase());
+        if (req.venue()     != null) p.setVenue(req.venue());
+        if (req.venueAddr() != null) p.setVenueAddr(req.venueAddr());
+        if (req.airport()   != null) p.setAirport(req.airport());
+        if (req.hotels()    != null) p.setHotels(toJsonString(req.hotels()));
+        if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
+        if (req.eveningRuns() != null) p.setEveningRuns(toJsonString(req.eveningRuns()));
+        if (req.rules()     != null) {
+            Map<String, Object> rules = parseRules(rulesJson(req.rules()));
+            if (rules != null) {
+                p.setRuleWindow(String.valueOf(rules.getOrDefault("window", p.getRuleWindow())));
+                p.setRuleCap(String.valueOf(rules.getOrDefault("cap", p.getRuleCap())));
+                p.setRuleBuffer(String.valueOf(rules.getOrDefault("buffer", p.getRuleBuffer())));
+            }
+        }
+        p.setUpdatedAt(OffsetDateTime.now());
+        programRepository.save(p);
+        return ResponseEntity.ok(toProgramDto(p));
+    }
+
+    @DeleteMapping("/programs/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteProgram(@PathVariable String id) {
+        programRepository.deleteById(id);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    private AdminDtos.ProgramResponse toProgramDto(Program p) {
+        return new AdminDtos.ProgramResponse(
+            p.getId(), p.getName(), p.getIni(), p.getType(),
+            p.getStartDate(), p.getEndDate(), p.getPhase(),
+            p.getVenue(), p.getVenueAddr(), p.getAirport(),
+            parseJson(p.getHotels(), List.of()),
+            parseJson(p.getMorningRuns(), List.of()),
+            parseJson(p.getEveningRuns(), List.of()),
+            Map.of("window", orEmpty(p.getRuleWindow()),
+                   "cap",    orEmpty(p.getRuleCap()),
+                   "buffer", orEmpty(p.getRuleBuffer())),
+            p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
+        );
+    }
+
+    private String toJsonString(Object obj) {
+        if (obj == null) return "[]";
+        try { return objectMapper.writeValueAsString(obj); } catch (Exception e) { return "[]"; }
+    }
+
+    private String rulesJson(Object rules) {
+        if (rules == null) return null;
+        try { return objectMapper.writeValueAsString(rules); } catch (Exception e) { return null; }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseRules(String json) {
+        if (json == null) return null;
+        try { return objectMapper.readValue(json, Map.class); } catch (Exception e) { return null; }
+    }
+
+    private Object parseJson(String json, Object fallback) {
+        if (json == null || json.isBlank()) return fallback;
+        try { return objectMapper.readValue(json, Object.class); } catch (Exception e) { return fallback; }
+    }
+
+    private String orEmpty(String s) { return s != null ? s : ""; }
 }

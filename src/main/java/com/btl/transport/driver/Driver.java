@@ -29,6 +29,9 @@ public class Driver {
     @Column(name = "whatsapp")
     private String whatsapp;
 
+    @Column(name = "email")
+    private String email;
+
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "available_dates", columnDefinition = "date[]")
     private String[] availableDates;

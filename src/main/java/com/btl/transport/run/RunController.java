@@ -27,7 +27,7 @@ public class RunController {
     @GetMapping("/shuttle-status")
     public ResponseEntity<Map<String, Object>> shuttleStatus() {
         List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
-        List<Run> allRuns = runRepository.findAll();
+        List<Run> allRuns = runRepository.findAllWithDetails();
 
         Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
         for (ConferenceDay day : ConferenceDay.values()) {

@@ -42,6 +42,12 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
 
     Optional<Run> findByRunId(String runId);
 
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.id IN :ids")
+    List<Run> findAllByIdWithDetails(@Param("ids") List<Integer> ids);
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver")
+    List<Run> findAllWithDetails();
+
     List<Run> findByDriverIdOrderByConferenceDateAscDepartTimeAsc(Integer driverId);
 
     @Query("""

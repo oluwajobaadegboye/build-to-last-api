@@ -95,7 +95,8 @@ public final class ParticipantDtos {
         @JsonProperty("depart_time") String departTime,
         String status,
         @JsonProperty("vehicle_label") String vehicleLabel,
-        @JsonProperty("driver_name") String driverName
+        @JsonProperty("driver_name") String driverName,
+        @JsonProperty("driver_phone") String driverPhone
     ) {}
 
     record ParticipantStatusResponse(
