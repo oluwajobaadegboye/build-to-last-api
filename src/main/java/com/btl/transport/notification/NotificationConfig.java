@@ -68,4 +68,7 @@ public class NotificationConfig {
 
     @Column(name = "reminder_before_mins")
     private Integer reminderBeforeMins;
+
+    @Column(name = "program_id")
+    private String programId;
 }

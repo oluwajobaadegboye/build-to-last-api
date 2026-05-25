@@ -134,6 +134,13 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
+        <!-- AWS S3 (file upload storage) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.26.12</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

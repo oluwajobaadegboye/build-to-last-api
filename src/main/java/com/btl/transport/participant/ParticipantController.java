@@ -3,21 +3,35 @@ package com.btl.transport.participant;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.flight.Flight;
 import com.btl.transport.flight.FlightRepository;
+import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
+import com.btl.transport.notification.SendGridService;
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import static com.btl.transport.participant.ParticipantDtos.*;
 
 @RestController
@@ -26,6 +40,9 @@ import static com.btl.transport.participant.ParticipantDtos.*;
 @Slf4j
 public class ParticipantController {
 
+    @Value("${btl.uploads.dir:./uploads}")
+    private String uploadsDir;
+
     private final ParticipantService participantService;
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
@@ -33,12 +50,19 @@ public class ParticipantController {
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
     private final NotificationConfigRepository notificationConfigRepository;
+    private final ProgramRepository programRepository;
+    private final SendGridService sendGridService;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @GetMapping("/health")
     public ResponseEntity<HealthResponse> health() {
         return ResponseEntity.ok(new HealthResponse("UP", "UP", OffsetDateTime.now().toString()));
     }
+
+    public record ResendCodeRequest(
+        String email,
+        @JsonProperty("program_id") String programId
+    ) {}
 
     // ── GET /api/v1/hotels ─────────────────────────────────────────────────
     @GetMapping("/hotels")
@@ -50,10 +74,45 @@ public class ParticipantController {
         );
     }
 
+    // ── GET /api/v1/programs/{programId} ─────────────────────────────────
+    @GetMapping("/programs/{programId}")
+    public ResponseEntity<Map<String, Object>> getProgramPublic(@PathVariable String programId) {
+        Program program = programRepository.findById(programId)
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + programId));
+        List<Hotel> hotels = hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId);
+        List<Map<String, Object>> hotelList = hotels.stream()
+            .map(h -> Map.<String, Object>of(
+                "hotel_id", h.getId(),
+                "hotel_name", h.getHotelName() != null ? h.getHotelName() : "",
+                "pickup_address", h.getPickupAddress() != null ? h.getPickupAddress() : ""
+            ))
+            .toList();
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("id", program.getId());
+        resp.put("name", program.getName());
+        resp.put("ini", program.getIni() != null ? program.getIni() : "");
+        resp.put("phase", program.getPhase() != null ? program.getPhase() : "setup");
+        resp.put("city", program.getCity() != null ? program.getCity() : "");
+        resp.put("state", program.getState() != null ? program.getState() : "");
+        resp.put("logo_url", program.getLogoUrl() != null ? program.getLogoUrl() : "");
+        resp.put("start_date", program.getStartDate() != null ? program.getStartDate() : "");
+        resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
+        resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);
+        resp.put("hotels", hotelList);
+        return ResponseEntity.ok(resp);
+    }
+
     // ── GET /api/v1/coordinator-contacts ──────────────────────────────────
     @GetMapping("/coordinator-contacts")
-    public ResponseEntity<CoordinatorContactsResponse> coordinatorContacts() {
-        NotificationConfig cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
+    public ResponseEntity<CoordinatorContactsResponse> coordinatorContacts(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        NotificationConfig cfg = null;
+        if (programId != null) {
+            cfg = notificationConfigRepository.findByProgramId(programId).orElse(null);
+        }
+        if (cfg == null) {
+            cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
+        }
         if (cfg == null) return ResponseEntity.ok(new CoordinatorContactsResponse(null, null));
 
         return ResponseEntity.ok(new CoordinatorContactsResponse(
@@ -62,16 +121,41 @@ public class ParticipantController {
         ));
     }
 
+    // ── POST /api/v1/resend-code ──────────────────────────────────────────
+    @PostMapping("/resend-code")
+    public ResponseEntity<Map<String, Boolean>> resendCode(@RequestBody ResendCodeRequest req) {
+        if (req.email() == null || req.programId() == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false));
+        }
+        participantRepository.findByEmailIgnoreCaseAndProgramId(req.email(), req.programId())
+            .ifPresent(p -> {
+                if (p.getEmail() != null && !p.getEmail().isBlank()) {
+                    String body = "Your BTL Transport code is: " + p.getBtlCode()
+                        + "\n\nCheck your transport status at: "
+                        + "https://btl.transport/status?code=" + p.getBtlCode();
+                    sendGridService.sendEmail(p.getEmail(), p.getFullName(),
+                        "Your BTL Transport Code", body);
+                }
+            });
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
     // ── POST /api/v1/register ─────────────────────────────────────────────
     @PostMapping("/register")
-    public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest req) {
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
-        Participant p = participantService.register(
-            req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
-            req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
-            req.departureAirline(), req.departureFlightNumber(), req.departureDatetime()
-        );
-        return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
+        try {
+            Participant p = participantService.register(
+                req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
+                req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
+                req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
+                req.programId()
+            );
+            return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
+        } catch (AlreadyRegisteredException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "already_registered", "message", e.getMessage()));
+        }
     }
 
     // ── POST /api/v1/update-flight ────────────────────────────────────────
@@ -86,7 +170,7 @@ public class ParticipantController {
     // ── GET /api/v1/participant-status ────────────────────────────────────
     @GetMapping("/participant-status")
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByBtlCodeWithHotel(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
 
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -106,16 +190,28 @@ public class ParticipantController {
             p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,
             Boolean.TRUE.equals(p.getNeedsAttention()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
-            hotelDto
+            hotelDto,
+            p.getProgramId()
         );
 
         List<RunDto> runs = getRunsForParticipant(p.getId()).stream().map(this::toRunDto).toList();
+
+        ProgramInfoDto programInfo = null;
+        if (p.getProgramId() != null) {
+            programInfo = programRepository.findById(p.getProgramId())
+                .map(prog -> new ProgramInfoDto(
+                    prog.getId(), prog.getName(), prog.getIni(),
+                    prog.getCity(), prog.getState(), prog.getLogoUrl(),
+                    prog.getStartDate(), prog.getEndDate()
+                )).orElse(null);
+        }
 
         return ResponseEntity.ok(new ParticipantStatusResponse(
             participantDto,
             toFlightDto(arrival),
             toFlightDto(departure),
             runs,
+            programInfo,
             OffsetDateTime.now().toString()
         ));
     }
@@ -186,5 +282,26 @@ public class ParticipantController {
             .stream().map(rp -> rp.getId().getRunId()).toList();
         if (runIds.isEmpty()) return List.of();
         return runRepository.findAllByIdWithDetails(runIds);
+    }
+
+    // ── Static file serving (local uploads) ──────────────────────────────
+    @GetMapping("/uploads/{filename:.+}")
+    public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
+        try {
+            Path file = Paths.get(uploadsDir).resolve(filename).normalize();
+            Resource resource = new UrlResource(file.toUri());
+            if (!resource.exists() || !resource.isReadable()) {
+                return ResponseEntity.notFound().build();
+            }
+            String contentType = filename.toLowerCase().endsWith(".png") ? "image/png"
+                : filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".jpeg") ? "image/jpeg"
+                : "application/octet-stream";
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 }

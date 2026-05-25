@@ -67,6 +67,18 @@ public class Program {
     @Column(name = "rule_buffer")
     private String ruleBuffer;
 
+    @Column(name = "city")
+    private String city;
+
+    @Column(name = "state")
+    private String state;
+
+    @Column(name = "logo_url")
+    private String logoUrl;
+
+    @Column(name = "hotel_selection_enabled")
+    private Boolean hotelSelectionEnabled;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

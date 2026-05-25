@@ -41,4 +41,7 @@ public class Driver {
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
+
+    @Column(name = "program_id")
+    private String programId;
 }

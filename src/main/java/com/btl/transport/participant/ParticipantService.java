@@ -12,6 +12,8 @@ import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.AirportConfig;
 import com.btl.transport.notification.AirportConfigRepository;
 import com.btl.transport.notification.NotificationService;
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,7 @@ public class ParticipantService {
     private final BtlCodeService btlCodeService;
     private final Leg4CalculatorService leg4Calculator;
     private final NotificationService notificationService;
+    private final ProgramRepository programRepository;
 
 //    @Value("${btl.frontend-base-url}")
 //    private String frontendBaseUrl;
@@ -44,13 +47,24 @@ public class ParticipantService {
         String fullName, String phone, String email,
         Integer hotelId, boolean shuttleOptIn,
         String arrivalAirline, String arrivalFlightNumber, OffsetDateTime arrivalDatetime,
-        String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime
+        String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime,
+        String programId
     ) {
-        if (participantRepository.existsByEmailIgnoreCase(email)) {
-            throw new IllegalArgumentException("An account with this email address already exists");
+        if (programId != null) {
+            // Per-program email uniqueness
+            if (participantRepository.findByEmailIgnoreCaseAndProgramId(email, programId).isPresent()) {
+                throw new AlreadyRegisteredException("You have already registered for this program.");
+            }
+        } else {
+            // Legacy global check (no program scope)
+            if (participantRepository.existsByEmailIgnoreCase(email)) {
+                throw new IllegalArgumentException("An account with this email address already exists");
+            }
         }
 
-        String btlCode = btlCodeService.generateNextCode();
+        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        String ini = program != null ? program.getIni() : null;
+        String btlCode = btlCodeService.generateNextCode(programId != null ? programId : "default", ini);
 
         Hotel hotel = hotelId != null
             ? hotelRepository.findById(hotelId).orElse(null)
@@ -65,6 +79,7 @@ public class ParticipantService {
             .needsAttention(false)
             .shuttleOptIn(shuttleOptIn)
             .hotel(hotel)
+            .programId(programId)
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();

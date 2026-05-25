@@ -47,5 +47,8 @@ public record RegisterRequest(
     String departureFlightNumber,
 
     @JsonProperty("departure_datetime")
-    OffsetDateTime departureDatetime
+    OffsetDateTime departureDatetime,
+
+    @JsonProperty("program_id")
+    String programId
 ) {}
