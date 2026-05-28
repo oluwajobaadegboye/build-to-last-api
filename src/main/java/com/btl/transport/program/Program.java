@@ -79,6 +79,9 @@ public class Program {
     @Column(name = "hotel_selection_enabled")
     private Boolean hotelSelectionEnabled;
 
+    @Column(name = "registration_open")
+    private Boolean registrationOpen;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

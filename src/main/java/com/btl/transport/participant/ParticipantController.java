@@ -13,6 +13,8 @@ import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -34,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import static com.btl.transport.participant.ParticipantDtos.*;
 
+@Tag(name = "Participant", description = "Public-facing participant registration, status, and flight update endpoints")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -54,6 +57,7 @@ public class ParticipantController {
     private final SendGridService sendGridService;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
+    @Operation(summary = "Health check", description = "Returns the current API service health status")
     @GetMapping("/health")
     public ResponseEntity<HealthResponse> health() {
         return ResponseEntity.ok(new HealthResponse("UP", "UP", OffsetDateTime.now().toString()));
@@ -65,6 +69,7 @@ public class ParticipantController {
     ) {}
 
     // ── GET /api/v1/hotels ─────────────────────────────────────────────────
+    @Operation(summary = "List hotels", description = "Returns all hotels ordered by shuttle stop sequence")
     @GetMapping("/hotels")
     public ResponseEntity<List<HotelResponse>> getHotels() {
         return ResponseEntity.ok(
@@ -75,6 +80,7 @@ public class ParticipantController {
     }
 
     // ── GET /api/v1/programs/{programId} ─────────────────────────────────
+    @Operation(summary = "Get program details", description = "Returns public program information and its associated hotel list")
     @GetMapping("/programs/{programId}")
     public ResponseEntity<Map<String, Object>> getProgramPublic(@PathVariable String programId) {
         Program program = programRepository.findById(programId)
@@ -98,11 +104,13 @@ public class ParticipantController {
         resp.put("start_date", program.getStartDate() != null ? program.getStartDate() : "");
         resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
         resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);
+        resp.put("registration_open", program.getRegistrationOpen() != null ? program.getRegistrationOpen() : true);
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }
 
     // ── GET /api/v1/coordinator-contacts ──────────────────────────────────
+    @Operation(summary = "Get coordinator contacts", description = "Returns coordinator phone and WhatsApp contact details, optionally scoped to a program")
     @GetMapping("/coordinator-contacts")
     public ResponseEntity<CoordinatorContactsResponse> coordinatorContacts(
             @RequestParam(name = "program_id", required = false) String programId) {
@@ -122,6 +130,7 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/resend-code ──────────────────────────────────────────
+    @Operation(summary = "Resend registration code", description = "Re-sends the participant's BTL transport code to their registered email address")
     @PostMapping("/resend-code")
     public ResponseEntity<Map<String, Boolean>> resendCode(@RequestBody ResendCodeRequest req) {
         if (req.email() == null || req.programId() == null) {
@@ -141,6 +150,7 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/register ─────────────────────────────────────────────
+    @Operation(summary = "Register participant", description = "Registers a new participant with flight and hotel preferences. Returns a unique BTL code on success")
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
@@ -149,16 +159,20 @@ public class ParticipantController {
                 req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
                 req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
                 req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
-                req.programId()
+                req.programId(), req.state()
             );
             return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
         } catch (AlreadyRegisteredException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("error", "already_registered", "message", e.getMessage()));
+        } catch (RegistrationClosedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "registration_closed", "message", e.getMessage()));
         }
     }
 
     // ── POST /api/v1/update-flight ────────────────────────────────────────
+    @Operation(summary = "Update flight details", description = "Updates arrival or departure flight information for an existing participant by BTL code")
     @PostMapping("/update-flight")
     public ResponseEntity<UpdateFlightResponse> updateFlight(@RequestBody UpdateFlightRequest req) {
         participantService.updateFlight(
@@ -168,6 +182,7 @@ public class ParticipantController {
     }
 
     // ── GET /api/v1/participant-status ────────────────────────────────────
+    @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their BTL code")
     @GetMapping("/participant-status")
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByBtlCodeWithHotel(code)
@@ -217,12 +232,14 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/send-notification ────────────────────────────────────
+    @Operation(summary = "Send notification", description = "Queues a transport notification for delivery (stub — always returns success)")
     @PostMapping("/send-notification")
     public ResponseEntity<NotificationResponse> sendNotification() {
         return ResponseEntity.ok(new NotificationResponse(true, "Notification queued"));
     }
 
     // ── POST /api/v1/twilio-webhook ───────────────────────────────────────
+    @Operation(summary = "Twilio SMS webhook", description = "Receives inbound SMS messages forwarded by Twilio and logs them against the matching participant")
     @PostMapping(value = "/twilio-webhook", produces = "text/xml")
     public ResponseEntity<String> twilioWebhook(HttpServletRequest request) {
         String fromPhone   = request.getParameter("From");
@@ -285,6 +302,7 @@ public class ParticipantController {
     }
 
     // ── Static file serving (local uploads) ──────────────────────────────
+    @Operation(summary = "Serve uploaded file", description = "Serves an image or binary file from the local uploads directory by filename")
     @GetMapping("/uploads/{filename:.+}")
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         try {

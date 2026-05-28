@@ -50,5 +50,8 @@ public record RegisterRequest(
     OffsetDateTime departureDatetime,
 
     @JsonProperty("program_id")
-    String programId
+    String programId,
+
+    @Size(max = 2, message = "State must be a 2-letter US state code")
+    String state
 ) {}

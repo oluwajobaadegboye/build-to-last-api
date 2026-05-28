@@ -48,8 +48,13 @@ public class ParticipantService {
         Integer hotelId, boolean shuttleOptIn,
         String arrivalAirline, String arrivalFlightNumber, OffsetDateTime arrivalDatetime,
         String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime,
-        String programId
+        String programId, String state
     ) {
+        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        if (program != null && Boolean.FALSE.equals(program.getRegistrationOpen())) {
+            throw new RegistrationClosedException("Registration for this program is currently paused.");
+        }
+
         if (programId != null) {
             // Per-program email uniqueness
             if (participantRepository.findByEmailIgnoreCaseAndProgramId(email, programId).isPresent()) {
@@ -62,7 +67,6 @@ public class ParticipantService {
             }
         }
 
-        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
         String ini = program != null ? program.getIni() : null;
         String btlCode = btlCodeService.generateNextCode(programId != null ? programId : "default", ini);
 
@@ -80,6 +84,7 @@ public class ParticipantService {
             .shuttleOptIn(shuttleOptIn)
             .hotel(hotel)
             .programId(programId)
+            .state(state)
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();

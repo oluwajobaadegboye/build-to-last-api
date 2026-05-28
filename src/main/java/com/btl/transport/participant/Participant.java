@@ -61,4 +61,7 @@ public class Participant {
 
     @Column(name = "program_id")
     private String programId;
+
+    @Column(name = "state", length = 2)
+    private String state;
 }

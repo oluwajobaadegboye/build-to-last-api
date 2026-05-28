@@ -19,9 +19,9 @@ spring:
 # Override DB to a local Postgres instance (Docker or native)
 # These defaults work with: docker run -e POSTGRES_PASSWORD=btl -e POSTGRES_DB=btl_dev -p 5432:5432 postgres:15
   datasource:
-    url: ${SUPABASE_DB_URL:jdbc:postgresql://localhost:5432/btl_dev}
-    username: ${SUPABASE_DB_USERNAME:user}
-    password: ${SUPABASE_DB_PASSWORD:password}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/btl_dev}
+    username: ${DB_USERNAME:user}
+    password: ${DB_PASSWORD:password}
 
 btl:
   admin:

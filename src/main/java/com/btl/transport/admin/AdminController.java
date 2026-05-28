@@ -29,12 +29,16 @@ import com.btl.transport.infrastructure.StorageService;
 import com.btl.transport.vehicle.Vehicle;
 import com.btl.transport.vehicle.VehicleRepository;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.util.stream.Stream;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,6 +47,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
 
+@Tag(name = "Admin", description = "Protected admin endpoints for managing participants, runs, drivers, vehicles, programs, and configuration. Requires a valid JWT bearer token")
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
@@ -111,6 +116,7 @@ public class AdminController {
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
     // ── Dashboard ──────────────────────────────────────────────────────────
+    @Operation(summary = "Dashboard stats", description = "Returns top-level KPIs: total participants, today's run count, active alerts, and monitored flights. Optionally scoped to a program via X-Program-Id")
     @GetMapping("/dashboard")
     public ResponseEntity<Map<String, Object>> dashboard(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -138,6 +144,7 @@ public class AdminController {
     }
 
     // ── Participants ───────────────────────────────────────────────────────
+    @Operation(summary = "List participants", description = "Returns a paginated, filterable list of participants. Supports filtering by status, hotel, attention flag, and free-text search")
     @GetMapping("/participants")
     public ResponseEntity<Map<String, Object>> listParticipants(
         @RequestHeader(value = "X-Program-Id", required = false) String programId,
@@ -182,6 +189,7 @@ public class AdminController {
         ));
     }
 
+    @Operation(summary = "Get participant", description = "Returns a single participant summary by BTL code")
     @GetMapping("/participants/{btlCode}")
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
@@ -189,6 +197,7 @@ public class AdminController {
         return ResponseEntity.ok(participantSummary(p));
     }
 
+    @Operation(summary = "Update participant hotel", description = "Reassigns a participant to a different hotel by participant ID")
     @PatchMapping("/participants/{id}/hotel")
     public ResponseEntity<Map<String, Object>> updateHotel(
         @PathVariable Integer id,
@@ -202,6 +211,7 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    @Operation(summary = "Flag participant for attention", description = "Sets or clears the needs-attention flag on a participant and records an optional reason")
     @PatchMapping("/participants/{id}/attention")
     public ResponseEntity<Map<String, Object>> updateAttention(
         @PathVariable Integer id,
@@ -217,6 +227,7 @@ public class AdminController {
     }
 
     // ── Alerts ────────────────────────────────────────────────────────────
+    @Operation(summary = "List alerts", description = "Returns all participants currently flagged as needing attention")
     @GetMapping("/alerts")
     public ResponseEntity<List<Map<String, Object>>> getAlerts() {
         List<Participant> flagged = participantRepository.findAll().stream()
@@ -236,6 +247,7 @@ public class AdminController {
         return ResponseEntity.ok(alerts);
     }
 
+    @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by BTL code")
     @PostMapping("/alerts/{btlCode}/resolve")
     public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
@@ -248,6 +260,7 @@ public class AdminController {
     }
 
     // ── Runs ──────────────────────────────────────────────────────────────
+    @Operation(summary = "List runs", description = "Returns all runs for a given date and optional direction, including assigned drivers, vehicles, and boarded participants")
     @Transactional(readOnly = true)
     @GetMapping("/runs")
     public ResponseEntity<List<Map<String, Object>>> getRuns(
@@ -272,6 +285,7 @@ public class AdminController {
         return ResponseEntity.ok(runs.stream().map(this::runDetail).toList());
     }
 
+    @Operation(summary = "Assign driver to run", description = "Assigns an existing driver to a run by run ID")
     @PatchMapping("/runs/{id}/driver")
     public ResponseEntity<Map<String, Object>> assignDriver(
         @PathVariable Integer id,
@@ -287,6 +301,7 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    @Operation(summary = "Assign vehicle to run", description = "Assigns an existing vehicle to a run by run ID")
     @PatchMapping("/runs/{id}/vehicle")
     public ResponseEntity<Map<String, Object>> assignVehicle(
         @PathVariable Integer id,
@@ -302,6 +317,7 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    @Operation(summary = "Mark participant boarding status", description = "Records whether a participant has boarded a specific run, stamping the board time when true")
     @PatchMapping("/run-participants/boarded")
     public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
         RunParticipantId rpId = new RunParticipantId(req.runId(), req.participantId());
@@ -316,6 +332,7 @@ public class AdminController {
     }
 
     // ── Drivers ───────────────────────────────────────────────────────────
+    @Operation(summary = "List drivers", description = "Returns all drivers, optionally scoped to a program via X-Program-Id")
     @GetMapping("/drivers")
     public ResponseEntity<List<AdminDtos.DriverAdminDto>> listDrivers(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -325,6 +342,7 @@ public class AdminController {
         return ResponseEntity.ok(drivers.stream().map(this::toDriverDto).toList());
     }
 
+    @Operation(summary = "Create driver", description = "Creates a new driver and sends a welcome email with their login code if an email address is provided")
     @PostMapping("/drivers")
     public ResponseEntity<AdminDtos.DriverAdminDto> createDriver(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
@@ -345,6 +363,7 @@ public class AdminController {
         return ResponseEntity.ok(toDriverDto(saved));
     }
 
+    @Operation(summary = "Update driver", description = "Partially updates a driver's name, phone, WhatsApp, or email by driver ID")
     @PatchMapping("/drivers/{id}")
     public ResponseEntity<AdminDtos.DriverAdminDto> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
         Driver d = driverRepository.findById(id)
@@ -356,6 +375,7 @@ public class AdminController {
         return ResponseEntity.ok(toDriverDto(driverRepository.save(d)));
     }
 
+    @Operation(summary = "Delete driver", description = "Permanently deletes a driver by ID")
     @DeleteMapping("/drivers/{id}")
     public ResponseEntity<AdminDtos.SuccessResponse> deleteDriver(@PathVariable Integer id) {
         driverRepository.deleteById(id);
@@ -363,6 +383,7 @@ public class AdminController {
     }
 
     // ── Resend code ──────────────────────────────────────────────────────────
+    @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the BTL code email for a participant, initiated by an admin")
     @PostMapping("/participants/{btlCode}/resend-code")
     public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
@@ -378,6 +399,7 @@ public class AdminController {
     }
 
     // ── Vehicles ──────────────────────────────────────────────────────────
+    @Operation(summary = "List vehicles", description = "Returns all vehicles, optionally scoped to a program via X-Program-Id")
     @GetMapping("/vehicles")
     public ResponseEntity<List<Vehicle>> listVehicles(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -387,6 +409,7 @@ public class AdminController {
         return ResponseEntity.ok(vehicles);
     }
 
+    @Operation(summary = "Create vehicle", description = "Creates a new vehicle and associates it with the given program")
     @PostMapping("/vehicles")
     public ResponseEntity<Vehicle> createVehicle(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
@@ -396,6 +419,7 @@ public class AdminController {
         return ResponseEntity.ok(vehicleRepository.save(vehicle));
     }
 
+    @Operation(summary = "Update vehicle", description = "Partially updates a vehicle's label, capacity, or type by vehicle ID")
     @PatchMapping("/vehicles/{id}")
     public ResponseEntity<Vehicle> updateVehicle(@PathVariable Integer id, @RequestBody Vehicle updates) {
         Vehicle v = vehicleRepository.findById(id)
@@ -406,6 +430,7 @@ public class AdminController {
         return ResponseEntity.ok(vehicleRepository.save(v));
     }
 
+    @Operation(summary = "Delete vehicle", description = "Permanently deletes a vehicle by ID")
     @DeleteMapping("/vehicles/{id}")
     public ResponseEntity<AdminDtos.SuccessResponse> deleteVehicle(@PathVariable Integer id) {
         vehicleRepository.deleteById(id);
@@ -414,6 +439,7 @@ public class AdminController {
 
     // ── Stats ─────────────────────────────────────────────────────────────
 
+    @Operation(summary = "Admin stats", description = "Returns aggregated transport statistics including participant count, today's runs, active alerts, and the next scheduled departure time")
     @GetMapping("/stats")
     public ResponseEntity<AdminDtos.AdminStatsResponse> stats(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -440,6 +466,7 @@ public class AdminController {
 
     // ── Participant (singular path) ────────────────────────────────────────
 
+    @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by BTL code")
     @GetMapping("/participant/{code}")
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> getParticipantDetail(
             @PathVariable String code) {
@@ -453,6 +480,7 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
+    @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by BTL code")
     @PatchMapping("/participant/{code}")
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipant(
             @PathVariable String code,
@@ -477,6 +505,7 @@ public class AdminController {
 
     // ── Alert (singular path alias) ────────────────────────────────────────
 
+    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given BTL code")
     @PostMapping("/alert/{btlCode}/resolve")
     public ResponseEntity<AdminDtos.SuccessResponse> resolveAlertSingular(
             @PathVariable String btlCode) {
@@ -491,6 +520,7 @@ public class AdminController {
 
     // ── Run (singular path, string runId) ─────────────────────────────────
 
+    @Operation(summary = "Update run", description = "Updates a run's status, departure time, or seat count by string run ID")
     @PatchMapping("/run/{runId}")
     public ResponseEntity<AdminDtos.RunAdminResponse> updateRun(
             @PathVariable String runId,
@@ -506,6 +536,7 @@ public class AdminController {
         return ResponseEntity.ok(toRunAdminResponse(run, List.of()));
     }
 
+    @Operation(summary = "Create run", description = "Creates an ad-hoc transport run and associates it with the given program")
     @PostMapping("/run")
     public ResponseEntity<AdminDtos.RunAdminResponse> createRun(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
@@ -535,6 +566,7 @@ public class AdminController {
 
     // ── Manifest ──────────────────────────────────────────────────────────
 
+    @Operation(summary = "Get driver manifest", description = "Returns all runs and their passenger lists assigned to a driver, formatted as a manifest")
     @GetMapping("/manifest/{driverId}")
     public ResponseEntity<AdminDtos.ManifestResponse> getManifest(
             @PathVariable Integer driverId) {
@@ -556,6 +588,7 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.ManifestResponse(toDriverDto(driver), runResponses));
     }
 
+    @Operation(summary = "Send manifest to driver", description = "Sends the driver's run manifest via WhatsApp (or SMS fallback) and marks all runs as manifest-sent")
     @PostMapping("/send-manifest/{driverId}")
     public ResponseEntity<AdminDtos.ManifestSendResponse> sendManifest(
             @PathVariable Integer driverId) {
@@ -593,6 +626,7 @@ public class AdminController {
 
     // ── Config ────────────────────────────────────────────────────────────
 
+    @Operation(summary = "Get shuttle config", description = "Returns shuttle scheduling configuration for all conference days and directions")
     @GetMapping("/config/shuttle")
     public ResponseEntity<List<AdminDtos.ShuttleConfigResponse>> getShuttleConfig() {
         List<AdminDtos.ShuttleConfigResponse> configs = shuttleConfigRepository.findAll().stream()
@@ -607,6 +641,7 @@ public class AdminController {
         return ResponseEntity.ok(configs);
     }
 
+    @Operation(summary = "Update shuttle config", description = "Bulk-updates shuttle window, interval, and capacity settings for one or more conference-day slots")
     @PatchMapping("/config/shuttle")
     public ResponseEntity<AdminDtos.SuccessResponse> updateShuttleConfig(
             @RequestBody List<AdminDtos.ShuttleConfigResponse> updates) {
@@ -624,6 +659,7 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
+    @Operation(summary = "Get airport config", description = "Returns global airport configuration: leg-4 cutoff time, polling window, and grouping parameters")
     @GetMapping("/config/airport")
     public ResponseEntity<AdminDtos.AirportConfigResponse> getAirportConfig() {
         AirportConfig c = airportConfigRepository.findByConfigKey("main")
@@ -635,6 +671,7 @@ public class AdminController {
         ));
     }
 
+    @Operation(summary = "Update airport config", description = "Updates airport configuration fields such as leg-4 cutoff, polling start/end, and grouping window")
     @PatchMapping("/config/airport")
     public ResponseEntity<AdminDtos.SuccessResponse> updateAirportConfig(
             @RequestBody AdminDtos.AirportConfigResponse req) {
@@ -648,6 +685,7 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
+    @Operation(summary = "Get notification config", description = "Returns coordinator contact details and SMS message templates, scoped to a program or the global default")
     @GetMapping("/config/notifications")
     public ResponseEntity<AdminDtos.NotificationConfigResponse> getNotificationConfig(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -667,6 +705,7 @@ public class AdminController {
         ));
     }
 
+    @Operation(summary = "Update notification config", description = "Updates coordinator contacts and SMS templates for a program or the global default config")
     @PatchMapping("/config/notifications")
     public ResponseEntity<AdminDtos.SuccessResponse> updateNotificationConfig(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
@@ -786,7 +825,7 @@ public class AdminController {
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure) {
         return new AdminDtos.ParticipantAdminResponse(
-            p.getBtlCode(), p.getFullName(), p.getPhone(), p.getEmail(),
+            p.getBtlCode(), p.getFullName(), p.getPhone(), p.getEmail(), p.getState(),
             toHotelDto(p.getHotel()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,
@@ -842,6 +881,7 @@ public class AdminController {
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName
     ) {}
 
+    @Operation(summary = "List admin users", description = "Returns all admin users belonging to the program specified in X-Program-Id")
     @GetMapping("/users")
     public ResponseEntity<List<Map<String, Object>>> listAdminUsers(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -857,6 +897,7 @@ public class AdminController {
             }).toList());
     }
 
+    @Operation(summary = "Create admin user", description = "Creates a new admin user with a bcrypt-hashed password and associates them with a program")
     @PostMapping("/users")
     @Transactional
     public ResponseEntity<Map<String, Object>> createAdminUser(
@@ -880,6 +921,7 @@ public class AdminController {
         return ResponseEntity.ok(result);
     }
 
+    @Operation(summary = "Delete admin user", description = "Removes an admin user. Refuses to delete the last remaining user for a program")
     @DeleteMapping("/users/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteAdminUser(
@@ -933,6 +975,7 @@ public class AdminController {
 
     // ── Programs ──────────────────────────────────────────────────────────
 
+    @Operation(summary = "List programs", description = "Returns all programs. If a program-scoped JWT is provided, returns only the token's program")
     @GetMapping("/programs")
     public ResponseEntity<List<AdminDtos.ProgramResponse>> listPrograms(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
@@ -946,10 +989,14 @@ public class AdminController {
         return ResponseEntity.ok(programs.stream().map(this::toProgramDto).toList());
     }
 
+    @Operation(summary = "Create program", description = "Creates a new transport program, seeds associated hotels, and provisions a default notification config")
     @PostMapping("/programs")
     @Transactional
     public ResponseEntity<AdminDtos.ProgramResponse> createProgram(
             @RequestBody AdminDtos.CreateProgramRequest req) {
+        if (req.ini() != null && !req.ini().isBlank() && programRepository.existsByIni(req.ini())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Program ini '" + req.ini() + "' is already in use");
+        }
         String rulesJson = rulesJson(req.rules());
         Map<String, Object> rules = parseRules(rulesJson);
         Program p = Program.builder()
@@ -967,6 +1014,7 @@ public class AdminController {
             .state(req.state())
             .logoUrl(req.logoUrl())
             .hotelSelectionEnabled(req.hotelSelectionEnabled() != null ? req.hotelSelectionEnabled() : true)
+            .registrationOpen(true)
             .hotels(toJsonString(req.hotels()))
             .morningRuns(toJsonString(req.morningRuns()))
             .eveningRuns(toJsonString(req.eveningRuns()))
@@ -986,6 +1034,7 @@ public class AdminController {
         return ResponseEntity.ok(toProgramDto(p));
     }
 
+    @Operation(summary = "Update program", description = "Partially updates program metadata, hotel list, run templates, or scheduling rules by program ID")
     @PatchMapping("/programs/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.ProgramResponse> updateProgram(
@@ -1005,6 +1054,7 @@ public class AdminController {
         if (req.state()     != null) p.setState(req.state());
         if (req.logoUrl()   != null) p.setLogoUrl(req.logoUrl());
         if (req.hotelSelectionEnabled() != null) p.setHotelSelectionEnabled(req.hotelSelectionEnabled());
+        if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
         if (req.eveningRuns() != null) p.setEveningRuns(toJsonString(req.eveningRuns()));
@@ -1021,6 +1071,7 @@ public class AdminController {
         return ResponseEntity.ok(toProgramDto(p));
     }
 
+    @Operation(summary = "Delete program", description = "Permanently deletes a program and its associated records by program ID")
     @DeleteMapping("/programs/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteProgram(@PathVariable String id) {
@@ -1035,6 +1086,7 @@ public class AdminController {
             p.getVenue(), p.getVenueAddr(), p.getAirport(),
             p.getCity(), p.getState(), p.getLogoUrl(),
             p.getHotelSelectionEnabled() != null ? p.getHotelSelectionEnabled() : true,
+            p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),
             parseJson(p.getEveningRuns(), List.of()),
@@ -1070,6 +1122,7 @@ public class AdminController {
 
     // ── File upload ────────────────────────────────────────────────────────
 
+    @Operation(summary = "Upload file", description = "Uploads a file (e.g. program logo) to storage and returns the public URL")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, String>> upload(@RequestParam("file") MultipartFile file) {
         String url = storageService.store(file);
