@@ -7,6 +7,7 @@ import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
+import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SendGridService;
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramRepository;
@@ -55,6 +56,7 @@ public class ParticipantController {
     private final NotificationConfigRepository notificationConfigRepository;
     private final ProgramRepository programRepository;
     private final SendGridService sendGridService;
+    private final NotificationService notificationService;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -105,6 +107,8 @@ public class ParticipantController {
         resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
         resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);
         resp.put("registration_open", program.getRegistrationOpen() != null ? program.getRegistrationOpen() : true);
+        resp.put("reg_title",       program.getRegTitle());
+        resp.put("reg_description", program.getRegDescription());
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }
@@ -139,11 +143,7 @@ public class ParticipantController {
         participantRepository.findByEmailIgnoreCaseAndProgramId(req.email(), req.programId())
             .ifPresent(p -> {
                 if (p.getEmail() != null && !p.getEmail().isBlank()) {
-                    String body = "Your BTL Transport code is: " + p.getBtlCode()
-                        + "\n\nCheck your transport status at: "
-                        + "https://btl.transport/status?code=" + p.getBtlCode();
-                    sendGridService.sendEmail(p.getEmail(), p.getFullName(),
-                        "Your BTL Transport Code", body);
+                    notificationService.sendRegistrationConfirmation(p);
                 }
             });
         return ResponseEntity.ok(Map.of("success", true));

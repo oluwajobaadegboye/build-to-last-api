@@ -2,24 +2,25 @@ name: Deploy Backend
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop, test ]
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [ dev, test, prod ]
       image_tag:
-        description: 'Docker image tag (default: git SHA)'
+        description: 'Docker image tag (leave empty to use git SHA)'
         required: false
         default: ''
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPOSITORY: btl-transport
-  ECS_CLUSTER: btl-transport-cluster
-  ECS_SERVICE: btl-transport-service
-  CONTAINER_NAME: btl-transport
+  AWS_REGION: us-east-2
 
 jobs:
   deploy:
-    name: Build, Push & Deploy
+    name: Deploy
     runs-on: ubuntu-latest
 
     permissions:
@@ -29,6 +30,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve environment config
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            ENV="prod"
+          elif [ "${{ github.ref_name }}" = "test" ]; then
+            ENV="test"
+          else
+            ENV="dev"
+          fi
+
+          # prod has no env suffix in resource names
+          if [ "$ENV" = "prod" ]; then
+            APP="btl-transport"
+          else
+            APP="btl-transport-$ENV"
+          fi
+
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_SHA:0:7}"; fi
+
+          echo "env=$ENV"       >> $GITHUB_OUTPUT
+          echo "app=$APP"       >> $GITHUB_OUTPUT
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Set AWS role ARN
+        run: |
+          case "${{ steps.cfg.outputs.env }}" in
+            prod) echo "AWS_ROLE_ARN=${{ secrets.PROD_AWS_ROLE_ARN }}" >> $GITHUB_ENV ;;
+            test) echo "AWS_ROLE_ARN=${{ secrets.TEST_AWS_ROLE_ARN }}" >> $GITHUB_ENV ;;
+            *)    echo "AWS_ROLE_ARN=${{ secrets.DEV_AWS_ROLE_ARN }}"  >> $GITHUB_ENV ;;
+          esac
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -40,40 +76,35 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set image tag
-        id: tag
-        run: |
-          TAG="${{ github.event.inputs.image_tag }}"
-          if [ -z "$TAG" ]; then TAG="${{ github.sha }}"; fi
-          echo "image_tag=${TAG:0:7}" >> $GITHUB_OUTPUT
-
       - name: Build JAR
-        run: mvn package -DskipTests
+        run: ./mvnw package -DskipTests --no-transfer-progress
 
       - name: Build & push Docker image
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          IMAGE_TAG: ${{ steps.cfg.outputs.image_tag }}
+          APP: ${{ steps.cfg.outputs.app }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-                     $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$APP:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$APP:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$APP:$IMAGE_TAG $ECR_REGISTRY/$APP:latest
+          docker push $ECR_REGISTRY/$APP:latest
+          echo "image=$ECR_REGISTRY/$APP:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Download current ECS task definition
+        env:
+          APP: ${{ steps.cfg.outputs.app }}
         run: |
           aws ecs describe-task-definition \
-            --task-definition ${{ env.CONTAINER_NAME }} \
+            --task-definition $APP \
             --query taskDefinition > task-definition.json
 
       - name: Update ECS task definition with new image
@@ -81,19 +112,19 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
+          container-name: ${{ steps.cfg.outputs.app }}
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy to ECS Fargate
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ steps.cfg.outputs.app }}-service
+          cluster: ${{ steps.cfg.outputs.app }}-cluster
           wait-for-service-stability: true
 
       - name: Deployment summary
         run: |
-          echo "## Deployed ✅" >> $GITHUB_STEP_SUMMARY
-          echo "Image: ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
-          echo "Cluster: ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployed to ${{ steps.cfg.outputs.env }} ✅" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ steps.cfg.outputs.app }}-cluster" >> $GITHUB_STEP_SUMMARY

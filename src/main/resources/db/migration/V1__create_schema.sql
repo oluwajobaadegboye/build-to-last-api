@@ -4,7 +4,7 @@
 --   spring.flyway.baseline-on-migrate=true and baseline-version=1.
 --   Flyway marks V1 as already applied without executing it.
 --
--- DEV / TEST: Set spring.flyway.baseline-on-migrate=false (see application-dev.yml).
+-- DEV / TEST: Set spring.flyway.baseline-on-migrate=false (see application-local.yml).
 --   Flyway runs this migration and creates everything from scratch.
 --
 -- All statements are idempotent (IF NOT EXISTS) so it is safe to run twice.

@@ -4,13 +4,13 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "Deployment environment"
-  default     = "conference"
+  description = "Deployment environment (dev, test, prod)"
+  type        = string
 }
 
 variable "app_name" {
-  description = "Application name"
-  default     = "btl-transport"
+  description = "Application name — include env suffix for dev/test (e.g. btl-transport-dev)"
+  type        = string
 }
 
 variable "domain_name" {
@@ -43,12 +43,28 @@ variable "tf_state_bucket" {
   type        = string
 }
 
-variable "tf_lock_table" {
-  description = "DynamoDB table for Terraform state locking"
-  type        = string
-}
-
 variable "github_org_repo" {
   description = "GitHub org/repo for OIDC trust (e.g. myorg/btl-transport)"
   type        = string
+}
+
+variable "create_dns" {
+  description = "Create Route 53 record and ACM certificate (set false until domain is registered)"
+  type        = bool
+  default     = false
+}
+
+variable "alert_email" {
+  description = "Email address to receive CloudWatch alarm notifications"
+  type        = string
+}
+
+variable "min_capacity" {
+  description = "Minimum ECS task count for auto-scaling"
+  default     = 1
+}
+
+variable "max_capacity" {
+  description = "Maximum ECS task count for auto-scaling"
+  default     = 2
 }

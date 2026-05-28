@@ -1,8 +1,8 @@
 # Stage 1: Build with Maven
-FROM eclipse-temurin:21-jdk AS builder
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 COPY pom.xml .
-RUN mvn dependency:go-offline -q 2>/dev/null || mvn dependency:go-offline
+RUN mvn dependency:go-offline -q
 COPY src ./src
 RUN mvn clean package -DskipTests --no-transfer-progress
 

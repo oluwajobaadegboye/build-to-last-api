@@ -20,7 +20,7 @@ output "ecs_service_name" {
 
 output "api_url" {
   description = "Full API URL"
-  value       = "https://${var.domain_name}"
+  value       = var.create_dns ? "https://${var.domain_name}" : "http://${aws_lb.main.dns_name}"
 }
 
 output "github_deploy_role_arn" {

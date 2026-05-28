@@ -85,13 +85,19 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.app_name}"
       },
       {
-        Sid    = "ECS"
+        Sid    = "ECSDeployActions"
         Effect = "Allow"
         Action = [
           "ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition",
-          "ecs:UpdateService", "ecs:DescribeServices", "iam:PassRole"
+          "ecs:UpdateService", "ecs:DescribeServices"
         ]
         Resource = "*"
+      },
+      {
+        Sid      = "ECSPassRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.ecs_task_execution.arn
       },
       {
         Sid    = "TFState"
@@ -101,12 +107,6 @@ resource "aws_iam_role_policy" "github_deploy" {
           "arn:aws:s3:::${var.tf_state_bucket}",
           "arn:aws:s3:::${var.tf_state_bucket}/*"
         ]
-      },
-      {
-        Sid    = "TFLock"
-        Effect = "Allow"
-        Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:DescribeTable"]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table}"
       }
     ]
   })

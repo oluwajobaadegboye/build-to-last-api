@@ -29,7 +29,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "ecs" {
   name        = "${var.app_name}-ecs-sg"
-  description = "ECS task — only from ALB"
+  description = "ECS task - only from ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {

@@ -1,5 +1,7 @@
 package com.btl.transport.admin;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +13,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.Map;
 
+@Tag(name = "Admin Auth", description = "Admin authentication — login and password management")
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
@@ -24,6 +27,7 @@ public class AdminAuthController {
 
     public record LoginRequest(String username, String password) {}
 
+    @Operation(summary = "Admin login", description = "Authenticate with username and password to receive a JWT bearer token")
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest body) {
         // 1. Try DB-stored admin user (look up by username alone — no program_id required)
@@ -61,6 +65,7 @@ public class AdminAuthController {
         @JsonProperty("new_password") String newPassword
     ) {}
 
+    @Operation(summary = "Change password", description = "Change the authenticated admin user's password. Requires a valid JWT and the current password")
     @PostMapping("/change-password")
     public ResponseEntity<Map<String, Object>> changePassword(
             @RequestHeader("Authorization") String authHeader,

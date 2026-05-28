@@ -28,9 +28,9 @@ resource "aws_ecs_task_definition" "app" {
     }]
 
     secrets = [
-      { name = "SUPABASE_DB_URL",       valueFrom = aws_secretsmanager_secret.btl["btl/supabase-db-url"].arn },
-      { name = "SUPABASE_DB_USERNAME",  valueFrom = aws_secretsmanager_secret.btl["btl/supabase-db-username"].arn },
-      { name = "SUPABASE_DB_PASSWORD",  valueFrom = aws_secretsmanager_secret.btl["btl/supabase-db-password"].arn },
+      { name = "DB_URL",      valueFrom = aws_secretsmanager_secret.btl["btl/db-url"].arn },
+      { name = "DB_USERNAME", valueFrom = aws_secretsmanager_secret.btl["btl/db-username"].arn },
+      { name = "DB_PASSWORD", valueFrom = aws_secretsmanager_secret.btl["btl/db-password"].arn },
       { name = "AVIATIONSTACK_API_KEY", valueFrom = aws_secretsmanager_secret.btl["btl/aviationstack-api-key"].arn },
       { name = "TWILIO_ACCOUNT_SID",    valueFrom = aws_secretsmanager_secret.btl["btl/twilio-account-sid"].arn },
       { name = "TWILIO_AUTH_TOKEN",     valueFrom = aws_secretsmanager_secret.btl["btl/twilio-auth-token"].arn },
@@ -84,7 +84,38 @@ resource "aws_ecs_service" "app" {
     container_port   = 8080
   }
 
-  depends_on = [aws_lb_listener.https]
+  force_new_deployment = true
+
+  depends_on = [aws_lb_listener.https, aws_lb_listener.http]
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 
   tags = { Name = "${var.app_name}-service" }
+}
+
+resource "aws_appautoscaling_target" "ecs" {
+  max_capacity       = var.max_capacity
+  min_capacity       = var.min_capacity
+  resource_id        = "service/${aws_ecs_cluster.btl.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  name               = "${var.app_name}-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 65.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
 }
