@@ -3,9 +3,9 @@ spring:
     name: btl-transport-service
 
   datasource:
-    url: ${SUPABASE_DB_URL}
-    username: ${SUPABASE_DB_USERNAME}
-    password: ${SUPABASE_DB_PASSWORD}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       minimum-idle: 2
@@ -27,7 +27,7 @@ spring:
 
   flyway:
     enabled: true
-    # PROD default: baseline-on-migrate=true skips V1 (tables already exist in Supabase).
+    # PROD default: baseline-on-migrate=true skips V1 (tables already exist in the database).
     # DEV/TEST: override to false in application-dev.yml so V1 runs and creates the schema.
     baseline-on-migrate: true
     baseline-version: 1
@@ -62,6 +62,8 @@ btl:
         password-hash: ${ADMIN_2_PASSWORD_HASH}
   notifications:
     sms-enabled: ${SMS_ENABLED:false}
+  sheets:
+    webhook-url: ${SHEETS_WEBHOOK_URL:}
   polling:
     interval-ms: 1800000
     pre-arrival-hours: 6
@@ -78,7 +80,7 @@ twilio:
   whatsapp-from: ${TWILIO_WHATSAPP_FROM:whatsapp:+10000000000}
 
 sendgrid:
-  api-key: ${SENDGRID_API_KEY:}
+  api-key: ${SENDGRID_API_KEY}
   # info@theevicta.com
   from-email: ${SENDGRID_FROM_EMAIL:info@theevicta.com}
   from-name: "BTL 2026 Transport"

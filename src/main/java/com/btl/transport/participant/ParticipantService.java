@@ -12,6 +12,7 @@ import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.AirportConfig;
 import com.btl.transport.notification.AirportConfigRepository;
 import com.btl.transport.notification.NotificationService;
+import com.btl.transport.notification.SheetsWebhookService;
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramRepository;
 import jakarta.transaction.Transactional;
@@ -38,6 +39,7 @@ public class ParticipantService {
     private final BtlCodeService btlCodeService;
     private final Leg4CalculatorService leg4Calculator;
     private final NotificationService notificationService;
+    private final SheetsWebhookService sheetsWebhookService;
     private final ProgramRepository programRepository;
 
 //    @Value("${btl.frontend-base-url}")
@@ -142,6 +144,13 @@ public class ParticipantService {
         } catch (Exception e) {
             log.warn("Notification failed for {} — registration still succeeded: {}", btlCode, e.getMessage());
         }
+
+        sheetsWebhookService.appendRegistration(
+            participant,
+            arrivalAirline, arrivalFlightNumber, arrivalDatetime,
+            departureAirline, departureFlightNumber, departureDatetime,
+            program != null ? program.getName() : null
+        );
 
         return participant;
     }
