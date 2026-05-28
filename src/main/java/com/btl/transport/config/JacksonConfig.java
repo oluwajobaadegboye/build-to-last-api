@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 
 @Configuration
@@ -26,8 +26,7 @@ public class JacksonConfig {
                     return OffsetDateTime.parse(text);
                 } catch (DateTimeParseException e) {
                     return LocalDateTime.parse(text)
-                            .atZone(ZoneId.of("America/Indiana/Indianapolis"))
-                            .toOffsetDateTime();
+                            .atOffset(ZoneOffset.UTC);
                 }
             }
         });

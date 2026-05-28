@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -46,8 +47,8 @@ public class ParticipantService {
     public Participant register(
         String fullName, String phone, String email,
         Integer hotelId, boolean shuttleOptIn,
-        String arrivalAirline, String arrivalFlightNumber, OffsetDateTime arrivalDatetime,
-        String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime,
+        String arrivalAirline, String arrivalFlightNumber, LocalDateTime arrivalDatetime,
+        String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
         String programId, String state
     ) {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
@@ -92,15 +93,17 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
+        ZoneId programZone = programZone(program);
 
         if (arrivalFlightNumber != null && arrivalDatetime != null) {
+            OffsetDateTime arrivalOdt = arrivalDatetime.atZone(programZone).toOffsetDateTime();
             boolean polling = isWithinPollingWindow(config, arrivalDatetime.toLocalDate());
             Flight arrival = Flight.builder()
                 .participant(participant)
                 .airline(arrivalAirline)
                 .flightNumber(arrivalFlightNumber)
                 .direction(Direction.TO_HOTEL)
-                .submittedDatetime(arrivalDatetime)
+                .submittedDatetime(arrivalOdt)
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(polling)
                 .airportCode("IND")
@@ -112,17 +115,17 @@ public class ParticipantService {
         }
 
         if (departureFlightNumber != null && departureDatetime != null) {
-            LocalTime departTime = departureDatetime.atZoneSameInstant(
-                ZoneId.of("America/Indiana/Indianapolis")).toLocalTime();
+            LocalTime departTime = departureDatetime.toLocalTime();
             LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
             var leg4From = leg4Calculator.calculate(departTime, hotel, defaultCutoff);
 
+            OffsetDateTime departureOdt = departureDatetime.atZone(programZone).toOffsetDateTime();
             Flight departure = Flight.builder()
                 .participant(participant)
                 .airline(departureAirline)
                 .flightNumber(departureFlightNumber)
                 .direction(Direction.TO_AIRPORT)
-                .submittedDatetime(departureDatetime)
+                .submittedDatetime(departureOdt)
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(false)
                 .leg4PickupFrom(leg4From)
@@ -176,8 +179,9 @@ public class ParticipantService {
 
         if (dir == Direction.TO_AIRPORT) {
             AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            LocalTime departTime = submittedDatetime.atZoneSameInstant(
-                ZoneId.of("America/Indiana/Indianapolis")).toLocalTime();
+            Program prog = participant.getProgramId() != null
+                ? programRepository.findById(participant.getProgramId()).orElse(null) : null;
+            LocalTime departTime = submittedDatetime.atZoneSameInstant(programZone(prog)).toLocalTime();
             LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
             flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, participant.getHotel(), defaultCutoff));
         }
@@ -188,6 +192,13 @@ public class ParticipantService {
         participantRepository.save(participant);
 
         return flightRepository.save(flight);
+    }
+
+    private ZoneId programZone(Program program) {
+        if (program != null && program.getTimezone() != null && !program.getTimezone().isBlank()) {
+            try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
+        }
+        return ZoneId.of("America/New_York");
     }
 
     private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {

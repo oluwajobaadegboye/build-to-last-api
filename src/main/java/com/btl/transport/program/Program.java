@@ -82,6 +82,15 @@ public class Program {
     @Column(name = "registration_open")
     private Boolean registrationOpen;
 
+    @Column(name = "reg_title", length = 500)
+    private String regTitle;
+
+    @Column(name = "reg_description", columnDefinition = "text")
+    private String regDescription;
+
+    @Column(name = "timezone")
+    private String timezone;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

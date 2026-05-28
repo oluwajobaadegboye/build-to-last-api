@@ -13,7 +13,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,7 +46,7 @@ public class FlightPollingJob {
             return;
         }
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneId.of("America/Indiana/Indianapolis"));
+        OffsetDateTime now = OffsetDateTime.now();
 
         // Deactivate any flights whose scheduled day has passed without a rescheduled date
         OffsetDateTime startOfToday = now.toLocalDate().atStartOfDay().atOffset(now.getOffset());
@@ -79,7 +78,7 @@ public class FlightPollingJob {
     private boolean isWithinPollingWindow(AirportConfig config) {
         OffsetDateTime end = config.getPollingEndAsOffsetDateTime();
         if (end == null) return false;
-        OffsetDateTime now = OffsetDateTime.now(ZoneId.of("America/Indiana/Indianapolis"));
+        OffsetDateTime now = OffsetDateTime.now();
         return now.isBefore(end);
     }
 }

@@ -1,0 +1,3 @@
+ALTER TABLE programs
+  ADD COLUMN IF NOT EXISTS reg_title VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS reg_description TEXT;

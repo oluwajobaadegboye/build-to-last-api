@@ -20,6 +20,7 @@ import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.notification.ShuttleConfig;
 import com.btl.transport.notification.ShuttleConfigRepository;
+import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SendGridService;
 import com.btl.transport.notification.TwilioService;
 import com.btl.transport.participant.Participant;
@@ -106,6 +107,7 @@ public class AdminController {
     private final NotificationConfigRepository notificationConfigRepository;
     private final TwilioService twilioService;
     private final SendGridService sendGridService;
+    private final NotificationService notificationService;
     private final ProgramRepository programRepository;
     private final HotelRepository hotelRepository;
     private final ObjectMapper objectMapper;
@@ -389,11 +391,7 @@ public class AdminController {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
         if (p.getEmail() != null && !p.getEmail().isBlank()) {
-            String body = "Your BTL Transport code is: " + p.getBtlCode()
-                + "\n\nCheck your transport status at: "
-                + "https://btl.transport/status?code=" + p.getBtlCode();
-            sendGridService.sendEmail(p.getEmail(), p.getFullName(),
-                "Your BTL Transport Code", body);
+            notificationService.sendRegistrationConfirmation(p);
         }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -1014,6 +1012,7 @@ public class AdminController {
             .state(req.state())
             .logoUrl(req.logoUrl())
             .hotelSelectionEnabled(req.hotelSelectionEnabled() != null ? req.hotelSelectionEnabled() : true)
+            .timezone(req.timezone() != null ? req.timezone() : "America/New_York")
             .registrationOpen(true)
             .hotels(toJsonString(req.hotels()))
             .morningRuns(toJsonString(req.morningRuns()))
@@ -1055,6 +1054,9 @@ public class AdminController {
         if (req.logoUrl()   != null) p.setLogoUrl(req.logoUrl());
         if (req.hotelSelectionEnabled() != null) p.setHotelSelectionEnabled(req.hotelSelectionEnabled());
         if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
+        if (req.regTitle()       != null) p.setRegTitle(req.regTitle().isBlank() ? null : req.regTitle());
+        if (req.regDescription() != null) p.setRegDescription(req.regDescription().isBlank() ? null : req.regDescription());
+        if (req.timezone()       != null && !req.timezone().isBlank()) p.setTimezone(req.timezone());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
         if (req.eveningRuns() != null) p.setEveningRuns(toJsonString(req.eveningRuns()));
@@ -1087,6 +1089,9 @@ public class AdminController {
             p.getCity(), p.getState(), p.getLogoUrl(),
             p.getHotelSelectionEnabled() != null ? p.getHotelSelectionEnabled() : true,
             p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
+            p.getRegTitle(),
+            p.getRegDescription(),
+            p.getTimezone() != null ? p.getTimezone() : "America/New_York",
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),
             parseJson(p.getEveningRuns(), List.of()),
