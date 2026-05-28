@@ -16,6 +16,7 @@ resource "aws_ecs_task_definition" "app" {
   cpu                      = var.cpu
   memory                   = var.memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([{
     name      = var.app_name
@@ -47,7 +48,8 @@ resource "aws_ecs_task_definition" "app" {
     ]
 
     environment = [
-      { name = "SPRING_PROFILES_ACTIVE", value = "prod" }
+      { name = "SPRING_PROFILES_ACTIVE",  value = "prod" },
+      { name = "BTL_UPLOADS_S3_BUCKET",   value = aws_s3_bucket.uploads.id }
     ]
 
     logConfiguration = {

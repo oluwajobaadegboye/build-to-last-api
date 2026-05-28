@@ -23,6 +23,11 @@ output "api_url" {
   value       = var.create_dns ? "https://${var.domain_name}" : "http://${aws_lb.main.dns_name}"
 }
 
+output "uploads_bucket" {
+  description = "S3 bucket for file uploads"
+  value       = aws_s3_bucket.uploads.id
+}
+
 output "github_deploy_role_arn" {
   description = "IAM role ARN for GitHub Actions OIDC"
   value       = aws_iam_role.github_deploy.arn

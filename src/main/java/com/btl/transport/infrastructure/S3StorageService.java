@@ -1,7 +1,7 @@
 package com.btl.transport.infrastructure;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @Service("s3StorageService")
 @Primary
-@ConditionalOnProperty(name = "btl.uploads.s3.bucket")
+@ConditionalOnExpression("!'${btl.uploads.s3.bucket:}'.isEmpty()")
 public class S3StorageService implements StorageService {
 
     private final S3Client s3;
