@@ -117,6 +117,9 @@ public class AdminController {
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
+    @org.springframework.beans.factory.annotation.Value("${btl.frontend-base-url}")
+    private String frontendBaseUrl;
+
     // ── Dashboard ──────────────────────────────────────────────────────────
     @Operation(summary = "Dashboard stats", description = "Returns top-level KPIs: total participants, today's run count, active alerts, and monitored flights. Optionally scoped to a program via X-Program-Id")
     @GetMapping("/dashboard")
@@ -351,13 +354,16 @@ public class AdminController {
             @RequestBody Driver driver) {
         driver.setCreatedAt(OffsetDateTime.now());
         driver.setProgramId(programId);
+        driver.setLoginToken(java.util.UUID.randomUUID().toString());
         Driver saved = driverRepository.save(driver);
         if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
             try {
+                String driverLink = frontendBaseUrl + "/driver?token=" + saved.getLoginToken();
                 String body = "Hi " + saved.getName() + ",\n\n"
-                    + "Your driver login code is: " + saved.getId() + "\n\n"
-                    + "Use this code to access your driver app and view your assigned runs.";
-                sendGridService.sendEmail(saved.getEmail(), saved.getName(), "Your Driver Login Code", body);
+                    + "You have been added as a driver for the upcoming program. Use the link below to access your driver app and view your assigned runs:\n\n"
+                    + driverLink + "\n\n"
+                    + "Bookmark this link — you'll use it each time you need to check your schedule.";
+                sendGridService.sendEmail(saved.getEmail(), saved.getName(), "Your Driver App Access", body);
             } catch (Exception e) {
                 log.warn("Failed to send driver welcome email to {}: {}", saved.getEmail(), e.getMessage());
             }
@@ -381,6 +387,28 @@ public class AdminController {
     @DeleteMapping("/drivers/{id}")
     public ResponseEntity<AdminDtos.SuccessResponse> deleteDriver(@PathVariable Integer id) {
         driverRepository.deleteById(id);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    @Operation(summary = "Resend driver link", description = "Re-sends the personal driver access link to the driver's email address")
+    @PostMapping("/drivers/{id}/resend-link")
+    public ResponseEntity<AdminDtos.SuccessResponse> resendDriverLink(@PathVariable Integer id) {
+        Driver d = driverRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
+        if (d.getEmail() == null || d.getEmail().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Driver has no email address on file.");
+        }
+        String driverLink = frontendBaseUrl + "/driver?token=" + d.getLoginToken();
+        String body = "Hi " + d.getName() + ",\n\n"
+            + "Here is your driver app link:\n\n"
+            + driverLink + "\n\n"
+            + "Bookmark this link — you'll use it each time you need to check your schedule.";
+        try {
+            sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", body);
+        } catch (Exception e) {
+            log.warn("Failed to resend driver link to {}: {}", d.getEmail(), e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to send email.");
+        }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
@@ -846,7 +874,7 @@ public class AdminController {
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {
         if (d == null) return null;
         return new AdminDtos.DriverAdminDto(
-            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail()
+            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail(), d.getLoginToken()
         );
     }
 

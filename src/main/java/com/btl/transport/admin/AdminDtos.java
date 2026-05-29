@@ -68,11 +68,12 @@ public final class AdminDtos {
     ) {}
 
     record DriverAdminDto(
-        @JsonProperty("driver_id") String driverId,
+        @JsonProperty("driver_id")    String driverId,
         String name,
         String phone,
         String whatsapp,
-        String email
+        String email,
+        @JsonProperty("login_token") String loginToken
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
