@@ -44,6 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -359,11 +361,7 @@ public class AdminController {
         if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
             try {
                 String driverLink = frontendBaseUrl + "/driver?token=" + saved.getLoginToken();
-                String body = "Hi " + saved.getName() + ",\n\n"
-                    + "You have been added as a driver for the upcoming program. Use the link below to access your driver app and view your assigned runs:\n\n"
-                    + driverLink + "\n\n"
-                    + "Bookmark this link — you'll use it each time you need to check your schedule.";
-                sendGridService.sendEmail(saved.getEmail(), saved.getName(), "Your Driver App Access", body);
+                sendDriverAccessEmail(saved, driverLink);
             } catch (Exception e) {
                 log.warn("Failed to send driver welcome email to {}: {}", saved.getEmail(), e.getMessage());
             }
@@ -398,13 +396,9 @@ public class AdminController {
         if (d.getEmail() == null || d.getEmail().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Driver has no email address on file.");
         }
-        String driverLink = frontendBaseUrl + "/driver?token=" + d.getLoginToken();
-        String body = "Hi " + d.getName() + ",\n\n"
-            + "Here is your driver app link:\n\n"
-            + driverLink + "\n\n"
-            + "Bookmark this link — you'll use it each time you need to check your schedule.";
         try {
-            sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", body);
+            String driverLink = frontendBaseUrl + "/driver?token=" + d.getLoginToken();
+            sendDriverAccessEmail(d, driverLink);
         } catch (Exception e) {
             log.warn("Failed to resend driver link to {}: {}", d.getEmail(), e.getMessage());
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to send email.");
@@ -869,6 +863,25 @@ public class AdminController {
             v.getType() != null ? v.getType().name().toLowerCase() : null,
             v.getCapacity() != null ? v.getCapacity() : 0
         );
+    }
+
+    private void sendDriverAccessEmail(Driver d, String driverLink) {
+        String plain = "Hi " + d.getName() + ",\n\n"
+            + "You have been added as a volunteer driver for Built to Last 2026.\n\n"
+            + "Open your driver app here:\n" + driverLink + "\n\n"
+            + "Bookmark this link — it's your personal access. Do not share it.\n\n"
+            + "Built to Last 2026 Transport Team";
+        try {
+            org.springframework.core.io.ClassPathResource res =
+                new org.springframework.core.io.ClassPathResource("templates/email-driver-access.html");
+            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .replace("{{name}}", d.getName())
+                .replace("{{driver_link}}", driverLink);
+            sendGridService.sendHtmlEmail(d.getEmail(), d.getName(), "Your Driver App Access", html, plain);
+        } catch (IOException e) {
+            log.warn("Driver email HTML template not found, falling back to plain text");
+            sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", plain);
+        }
     }
 
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {
