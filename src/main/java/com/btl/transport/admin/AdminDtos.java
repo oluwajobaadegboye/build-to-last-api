@@ -81,6 +81,7 @@ public final class AdminDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record RunAdminResponse(
+        Integer id,
         @JsonProperty("run_id")           String runId,
         @JsonProperty("run_type")         String runType,
         String direction,

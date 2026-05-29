@@ -557,6 +557,16 @@ public class AdminController {
         return ResponseEntity.ok(toRunAdminResponse(run, List.of()));
     }
 
+    @Operation(summary = "Delete run")
+    @DeleteMapping("/run/{runId}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteRun(@PathVariable String runId) {
+        Run run = runRepository.findByRunId(runId)
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        runRepository.delete(run);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     @Operation(summary = "Create run", description = "Creates an ad-hoc transport run and associates it with the given program")
     @PostMapping("/run")
     public ResponseEntity<AdminDtos.RunAdminResponse> createRun(
@@ -898,6 +908,7 @@ public class AdminController {
     private AdminDtos.RunAdminResponse toRunAdminResponse(
             Run r, List<AdminDtos.ParticipantAdminResponse> participants) {
         return new AdminDtos.RunAdminResponse(
+            r.getId(),
             r.getRunId(),
             r.getRunType() != null ? r.getRunType().name().toLowerCase() : null,
             r.getDirection() != null ? r.getDirection().name().toLowerCase() : null,

@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 @Service
 @RequiredArgsConstructor
@@ -95,10 +96,9 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-        ZoneId programZone = programZone(program);
 
         if (arrivalFlightNumber != null && arrivalDatetime != null) {
-            OffsetDateTime arrivalOdt = arrivalDatetime.atZone(programZone).toOffsetDateTime();
+            OffsetDateTime arrivalOdt = arrivalDatetime.atOffset(ZoneOffset.UTC);
             boolean polling = isWithinPollingWindow(config, arrivalDatetime.toLocalDate());
             Flight arrival = Flight.builder()
                 .participant(participant)
@@ -121,7 +121,7 @@ public class ParticipantService {
             LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
             var leg4From = leg4Calculator.calculate(departTime, hotel, defaultCutoff);
 
-            OffsetDateTime departureOdt = departureDatetime.atZone(programZone).toOffsetDateTime();
+            OffsetDateTime departureOdt = departureDatetime.atOffset(ZoneOffset.UTC);
             Flight departure = Flight.builder()
                 .participant(participant)
                 .airline(departureAirline)
