@@ -874,7 +874,10 @@ public class AdminController {
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {
         if (d == null) return null;
         return new AdminDtos.DriverAdminDto(
-            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail(), d.getLoginToken()
+            String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail(), d.getLoginToken(),
+            d.getAvailableDates(),
+            d.getActiveFrom() != null ? d.getActiveFrom().toString() : null,
+            d.getCreatedAt() != null ? d.getCreatedAt().toString() : null
         );
     }
 
