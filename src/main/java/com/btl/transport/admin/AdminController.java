@@ -49,6 +49,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Tag(name = "Admin", description = "Protected admin endpoints for managing participants, runs, drivers, vehicles, programs, and configuration. Requires a valid JWT bearer token")
 @RestController
@@ -979,6 +980,47 @@ public class AdminController {
         }
         adminUserRepository.delete(user);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    public record UpdateAdminUserRequest(
+        String username,
+        @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
+        @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword
+    ) {}
+
+    @Operation(summary = "Update admin user", description = "Updates an admin user's username, display name, and/or password")
+    @PutMapping("/users/{id}")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateAdminUser(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId,
+            @PathVariable Integer id,
+            @RequestBody UpdateAdminUserRequest req) {
+        AdminUser user = adminUserRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Admin user not found: " + id));
+        if (programId != null && !programId.equals(user.getProgramId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "forbidden"));
+        }
+        if (req.username() != null && !req.username().isBlank()) {
+            user.setUsername(req.username().trim());
+        }
+        if (req.displayName() != null) {
+            user.setDisplayName(req.displayName().isBlank() ? null : req.displayName().trim());
+        }
+        if (req.newPassword() != null && !req.newPassword().isBlank()) {
+            user.setPasswordHash(bcrypt.encode(req.newPassword()));
+        }
+        try {
+            adminUserRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "Username already taken"));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", user.getId());
+        result.put("username", user.getUsername());
+        result.put("display_name", user.getDisplayName());
+        result.put("created_at", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
+        return ResponseEntity.ok(result);
     }
 
     @SuppressWarnings("unchecked")

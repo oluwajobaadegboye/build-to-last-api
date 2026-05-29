@@ -31,7 +31,7 @@ public class AdminAuthController {
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest body) {
         // 1. Try DB-stored admin user (look up by username alone — no program_id required)
-        AdminUser dbUser = adminUserRepository.findByUsername(body.username()).orElse(null);
+        AdminUser dbUser = adminUserRepository.findByUsernameIgnoreCase(body.username()).orElse(null);
         if (dbUser != null && bcrypt.matches(body.password(), dbUser.getPasswordHash())) {
             String token = jwtService.generateToken(body.username(), dbUser.getProgramId());
             return ResponseEntity.ok(Map.of(
@@ -42,7 +42,7 @@ public class AdminAuthController {
 
         // 2. Fall back to YAML-configured super-admins
         AdminProperties.AdminUser match = props.getUsers().stream()
-            .filter(u -> u.getUsername() != null && u.getUsername().equals(body.username()))
+            .filter(u -> u.getUsername() != null && u.getUsername().equalsIgnoreCase(body.username()))
             .findFirst()
             .orElse(null);
 
@@ -75,7 +75,7 @@ public class AdminAuthController {
         }
         String token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
         String username = jwtService.validateAndExtractUsername(token);
-        AdminUser dbUser = adminUserRepository.findByUsername(username).orElse(null);
+        AdminUser dbUser = adminUserRepository.findByUsernameIgnoreCase(username).orElse(null);
         if (dbUser == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(Map.of("error", "Password change is not supported for this account type"));
