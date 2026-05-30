@@ -3,7 +3,7 @@ package com.btl.transport.participant;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.*;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 
 @ValidFlightPairs
 public record RegisterRequest(
@@ -38,7 +38,7 @@ public record RegisterRequest(
     String arrivalFlightNumber,
 
     @JsonProperty("arrival_datetime")
-    OffsetDateTime arrivalDatetime,
+    LocalDateTime arrivalDatetime,
 
     @JsonProperty("departure_airline")
     String departureAirline,
@@ -47,5 +47,11 @@ public record RegisterRequest(
     String departureFlightNumber,
 
     @JsonProperty("departure_datetime")
-    OffsetDateTime departureDatetime
+    LocalDateTime departureDatetime,
+
+    @JsonProperty("program_id")
+    String programId,
+
+    @Size(max = 2, message = "State must be a 2-letter US state code")
+    String state
 ) {}

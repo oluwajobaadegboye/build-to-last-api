@@ -5,6 +5,8 @@ import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.RunStatusEnum;
 import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +16,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.*;
 
+@Tag(name = "Runs", description = "Public shuttle schedule and real-time run status endpoints")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -24,10 +27,11 @@ public class RunController {
     private final HotelRepository hotelRepository;
 
     // ── GET /api/v1/shuttle-status ─────────────────────────────────────────
+    @Operation(summary = "Get shuttle status", description = "Returns the full multi-day shuttle schedule, the next upcoming departure, and hotel pickup stop order")
     @GetMapping("/shuttle-status")
     public ResponseEntity<Map<String, Object>> shuttleStatus() {
         List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
-        List<Run> allRuns = runRepository.findAll();
+        List<Run> allRuns = runRepository.findAllWithDetails();
 
         Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
         for (ConferenceDay day : ConferenceDay.values()) {

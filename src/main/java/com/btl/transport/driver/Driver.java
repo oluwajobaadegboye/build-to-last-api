@@ -29,6 +29,9 @@ public class Driver {
     @Column(name = "whatsapp")
     private String whatsapp;
 
+    @Column(name = "email")
+    private String email;
+
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "available_dates", columnDefinition = "date[]")
     private String[] availableDates;
@@ -38,4 +41,13 @@ public class Driver {
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
+
+    @Column(name = "program_id")
+    private String programId;
+
+    @Column(name = "login_token", unique = true)
+    private String loginToken;
+
+    @Column(name = "driver_code", unique = true)
+    private String driverCode;
 }

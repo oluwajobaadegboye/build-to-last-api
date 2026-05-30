@@ -2,9 +2,9 @@ name: Backend CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop, test ]
   push:
-    branches: [ main ]
+    branches: [ main, develop, test ]
 
 jobs:
   test:
@@ -40,9 +40,9 @@ jobs:
       - name: Run tests
         env:
           SPRING_PROFILES_ACTIVE: test
-          SUPABASE_DB_URL: jdbc:postgresql://localhost:5432/btl_test
-          SUPABASE_DB_USERNAME: postgres
-          SUPABASE_DB_PASSWORD: postgres
+          DB_URL: jdbc:postgresql://localhost:5432/btl_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
           AVIATIONSTACK_API_KEY: test-key
           TWILIO_ACCOUNT_SID: test-sid
           TWILIO_AUTH_TOKEN: test-token
@@ -51,10 +51,10 @@ jobs:
           SENDGRID_API_KEY: test-key
           SENDGRID_FROM_EMAIL: test@test.com
           FRONTEND_BASE_URL: http://localhost:5173
-        run: mvn clean test
+        run: ./mvnw clean test --no-transfer-progress
 
       - name: Build JAR
-        run: mvn package -DskipTests
+        run: ./mvnw package -DskipTests --no-transfer-progress
 
       - name: Upload test results
         if: always()

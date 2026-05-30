@@ -63,6 +63,12 @@ public class NotificationConfig {
     @Column(name = "template_help_forward")
     private String templateHelpForward;
 
+    @Column(name = "template_reschedule")
+    private String templateReschedule;
+
     @Column(name = "reminder_before_mins")
     private Integer reminderBeforeMins;
+
+    @Column(name = "program_id")
+    private String programId;
 }

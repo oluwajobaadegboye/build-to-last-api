@@ -33,6 +33,34 @@ resource "aws_iam_role_policy" "ecs_secrets" {
   })
 }
 
+# ── ECS Task Role (runtime permissions for the app) ─────────────────────────
+resource "aws_iam_role" "ecs_task" {
+  name = "${var.app_name}-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_s3_uploads" {
+  name = "${var.app_name}-task-s3-uploads"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+      Resource = "${aws_s3_bucket.uploads.arn}/*"
+    }]
+  })
+}
+
 # ── GitHub OIDC Role ────────────────────────────────────────────────────────
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
@@ -85,13 +113,19 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.app_name}"
       },
       {
-        Sid    = "ECS"
+        Sid    = "ECSDeployActions"
         Effect = "Allow"
         Action = [
           "ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition",
-          "ecs:UpdateService", "ecs:DescribeServices", "iam:PassRole"
+          "ecs:UpdateService", "ecs:DescribeServices"
         ]
         Resource = "*"
+      },
+      {
+        Sid      = "ECSPassRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.ecs_task_execution.arn
       },
       {
         Sid    = "TFState"
@@ -101,12 +135,6 @@ resource "aws_iam_role_policy" "github_deploy" {
           "arn:aws:s3:::${var.tf_state_bucket}",
           "arn:aws:s3:::${var.tf_state_bucket}/*"
         ]
-      },
-      {
-        Sid    = "TFLock"
-        Effect = "Allow"
-        Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:DescribeTable"]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table}"
       }
     ]
   })

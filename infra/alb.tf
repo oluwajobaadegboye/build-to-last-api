@@ -1,9 +1,10 @@
 resource "aws_lb" "main" {
-  name               = "${var.app_name}-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  name                       = "${var.app_name}-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups            = [aws_security_group.alb.id]
+  subnets                    = aws_subnet.public[*].id
+  enable_deletion_protection = true
 
   tags = { Name = "${var.app_name}-alb" }
 }
@@ -32,21 +33,27 @@ resource "aws_lb_listener" "http" {
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type             = var.create_dns ? "redirect" : "forward"
+    target_group_arn = var.create_dns ? null : aws_lb_target_group.app.arn
+
+    dynamic "redirect" {
+      for_each = var.create_dns ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
     }
   }
 }
 
 resource "aws_lb_listener" "https" {
+  count             = var.create_dns ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.main.certificate_arn
+  certificate_arn   = aws_acm_certificate_validation.main[0].certificate_arn
 
   default_action {
     type             = "forward"

@@ -5,4 +5,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface DriverRepository extends JpaRepository<Driver, Integer> {
+    java.util.List<Driver> findByProgramId(String programId);
+    java.util.Optional<Driver> findByLoginToken(String loginToken);
+    java.util.Optional<Driver> findByDriverCode(String driverCode);
 }

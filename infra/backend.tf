@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.7"
+  required_version = ">= 1.10"
 
   required_providers {
     aws = {
@@ -8,11 +8,14 @@ terraform {
     }
   }
 
-  # Backend values must be literals — pass via -backend-config or terraform.tfvars
-  # terraform init -backend-config="bucket=YOUR_BUCKET" -backend-config="dynamodb_table=YOUR_TABLE"
+  # All backend values are passed via -backend-config flags — see Makefile.
+  # terraform init \
+  #   -backend-config="bucket=BUCKET" \
+  #   -backend-config="region=us-east-2" \
+  #   -backend-config="key=btl-transport/ENV/terraform.tfstate"
   backend "s3" {
-    key     = "btl-transport/terraform.tfstate"
-    encrypt = true
+    use_lockfile = true
+    encrypt      = true
   }
 }
 

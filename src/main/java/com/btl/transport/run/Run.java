@@ -82,6 +82,9 @@ public class Run {
     @Column(name = "updated_at")
     private OffsetDateTime updatedAt;
 
+    @Column(name = "program_id")
+    private String programId;
+
     public LocalTime getDepartTimeAsLocalTime() {
         return departTime != null ? LocalTime.parse(departTime) : null;
     }

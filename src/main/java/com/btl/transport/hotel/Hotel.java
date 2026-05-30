@@ -40,6 +40,12 @@ public class Hotel {
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
+    @Column(name = "program_id")
+    private String programId;
+
+    @Column(name = "external_ref")
+    private String externalRef;
+
     private static final DateTimeFormatter AM_PM_FORMAT =
         DateTimeFormatter.ofPattern("hh:mm a");
 

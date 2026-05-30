@@ -8,12 +8,14 @@ import com.btl.transport.notification.AirportConfig;
 import com.btl.transport.notification.AirportConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -25,6 +27,12 @@ public class FlightPollingJob {
     private final FlightService flightService;
     private final AviationStackClient aviationStackClient;
 
+    @Value("${btl.polling.pre-arrival-hours:6}")
+    private int preArrivalHours;
+
+    @Value("${btl.polling.post-arrival-hours:2}")
+    private int postArrivalHours;
+
     @Scheduled(fixedDelayString = "${btl.polling.interval-ms:1800000}")
     public void pollFlights() {
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
@@ -33,22 +41,36 @@ public class FlightPollingJob {
             return;
         }
 
-        // Guard: close polling window if past end datetime
         if (!isWithinPollingWindow(config)) {
             flightService.closePollingWindow();
             return;
         }
 
-        List<Flight> flights = flightRepository.findByPollingActiveTrue();
-        log.info("Polling {} active flights", flights.size());
+        OffsetDateTime now = OffsetDateTime.now();
 
-        for (Flight flight : flights) {
+        // Deactivate any flights whose scheduled day has passed without a rescheduled date
+        OffsetDateTime startOfToday = now.toLocalDate().atStartOfDay().atOffset(now.getOffset());
+        flightService.deactivatePastDayFlights(startOfToday);
+
+        List<Flight> flights = flightRepository.findActiveFlightsInWindow(
+            now.minusHours(postArrivalHours),
+            now.plusHours(preArrivalHours)
+        );
+
+        // Deduplicate: one API call per unique flight number regardless of how many participants share it
+        Map<String, List<Flight>> byNumber = flights.stream()
+            .collect(Collectors.groupingBy(Flight::getFlightNumber));
+
+        log.info("Polling {} unique flight numbers ({} total rows in window)", byNumber.size(), flights.size());
+
+        for (Map.Entry<String, List<Flight>> entry : byNumber.entrySet()) {
+            String flightNumber = entry.getKey();
+            List<Flight> group = entry.getValue();
             try {
-                aviationStackClient.fetchFlight(flight.getFlightNumber())
-                    .ifPresent(data -> flightService.processFlightUpdate(flight, data, config));
+                aviationStackClient.fetchFlight(flightNumber)
+                    .ifPresent(data -> group.forEach(f -> flightService.processFlightUpdate(f, data, config)));
             } catch (Exception e) {
-                log.warn("Failed to poll flight {}: {}", flight.getFlightNumber(), e.getMessage());
-                // Graceful degradation — skip this flight, retry next cycle
+                log.warn("Failed to poll flight {}: {}", flightNumber, e.getMessage());
             }
         }
     }
@@ -56,7 +78,7 @@ public class FlightPollingJob {
     private boolean isWithinPollingWindow(AirportConfig config) {
         OffsetDateTime end = config.getPollingEndAsOffsetDateTime();
         if (end == null) return false;
-        OffsetDateTime now = OffsetDateTime.now(ZoneId.of("America/Indiana/Indianapolis"));
+        OffsetDateTime now = OffsetDateTime.now();
         return now.isBefore(end);
     }
 }

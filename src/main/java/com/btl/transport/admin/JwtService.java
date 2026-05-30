@@ -17,19 +17,25 @@ public class JwtService {
 
     private final AdminProperties props;
 
-    public String generateToken(String username) {
+    public String generateToken(String username, String programId) {
         Instant now = Instant.now();
         Instant expiry = now.plusSeconds((long) props.getJwt().getExpiryHours() * 3600);
-        return Jwts.builder()
+        var builder = Jwts.builder()
             .subject(username)
             .issuedAt(Date.from(now))
-            .expiration(Date.from(expiry))
-            .signWith(signingKey())
-            .compact();
+            .expiration(Date.from(expiry));
+        if (programId != null) {
+            builder = builder.claim("program_id", programId);
+        }
+        return builder.signWith(signingKey()).compact();
     }
 
     public String validateAndExtractUsername(String token) {
         return parseClaims(token).getSubject();
+    }
+
+    public String extractProgramId(String token) {
+        try { return parseClaims(token).get("program_id", String.class); } catch (Exception e) { return null; }
     }
 
     public Instant getExpiry(String token) {

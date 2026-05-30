@@ -72,7 +72,8 @@ public final class ParticipantDtos {
         String status,
         @JsonProperty("needs_attention") boolean needsAttention,
         @JsonProperty("shuttle_opt_in") boolean shuttleOptIn,
-        HotelDto hotel
+        HotelDto hotel,
+        @JsonProperty("program_id") String programId
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -95,7 +96,20 @@ public final class ParticipantDtos {
         @JsonProperty("depart_time") String departTime,
         String status,
         @JsonProperty("vehicle_label") String vehicleLabel,
-        @JsonProperty("driver_name") String driverName
+        @JsonProperty("driver_name") String driverName,
+        @JsonProperty("driver_phone") String driverPhone
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record ProgramInfoDto(
+        String id,
+        String name,
+        String ini,
+        String city,
+        String state,
+        @JsonProperty("logo_url") String logoUrl,
+        @JsonProperty("start_date") String startDate,
+        @JsonProperty("end_date") String endDate
     ) {}
 
     record ParticipantStatusResponse(
@@ -103,6 +117,7 @@ public final class ParticipantDtos {
         FlightDto arrival,
         FlightDto departure,
         List<RunDto> runs,
+        @JsonProperty("program") ProgramInfoDto program,
         @JsonProperty("generated_at") String generatedAt
     ) {}
 }

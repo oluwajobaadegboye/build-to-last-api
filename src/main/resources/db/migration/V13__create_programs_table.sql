@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS programs (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    ini           TEXT,
+    type          TEXT NOT NULL DEFAULT 'Conference',
+    start_date    TEXT,
+    end_date      TEXT,
+    phase         TEXT NOT NULL DEFAULT 'setup',
+    venue         TEXT,
+    venue_addr    TEXT,
+    airport       TEXT,
+    hotels        JSONB NOT NULL DEFAULT '[]',
+    morning_runs  JSONB NOT NULL DEFAULT '[]',
+    evening_runs  JSONB NOT NULL DEFAULT '[]',
+    rule_window   TEXT DEFAULT '75',
+    rule_cap      TEXT DEFAULT '22',
+    rule_buffer   TEXT DEFAULT '60',
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    updated_at    TIMESTAMPTZ DEFAULT now()
+);

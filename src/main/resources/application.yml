@@ -3,9 +3,9 @@ spring:
     name: btl-transport-service
 
   datasource:
-    url: ${SUPABASE_DB_URL}
-    username: ${SUPABASE_DB_USERNAME}
-    password: ${SUPABASE_DB_PASSWORD}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       minimum-idle: 2
@@ -27,7 +27,7 @@ spring:
 
   flyway:
     enabled: true
-    # PROD default: baseline-on-migrate=true skips V1 (tables already exist in Supabase).
+    # PROD default: baseline-on-migrate=true skips V1 (tables already exist in the database).
     # DEV/TEST: override to false in application-dev.yml so V1 runs and creates the schema.
     baseline-on-migrate: true
     baseline-version: 1
@@ -60,10 +60,20 @@ btl:
         password-hash: ${ADMIN_1_PASSWORD_HASH}
       - username: ${ADMIN_2_USERNAME}
         password-hash: ${ADMIN_2_PASSWORD_HASH}
+  uploads:
+    dir: ${BTL_UPLOADS_DIR:./uploads}
+    base-url: ${BTL_UPLOADS_BASE_URL:http://localhost:8080/api/v1/uploads}
+    s3:
+      bucket: ${BTL_UPLOADS_S3_BUCKET:}
+      cdn-base-url: ${BTL_UPLOADS_S3_CDN_BASE_URL:}
   notifications:
     sms-enabled: ${SMS_ENABLED:false}
+  sheets:
+    webhook-url: ${SHEETS_WEBHOOK_URL:https://script.google.com/macros/s/AKfycbx0IK2RTRMp4jD1M8xh4BlFCJZbAGAx0NELBvGF41Az_LWe_vyieFYK4xm4DLMjdUqI8A/exec}
   polling:
     interval-ms: 1800000
+    pre-arrival-hours: 6
+    post-arrival-hours: 2
 
 aviationstack:
   api-key: ${AVIATIONSTACK_API_KEY:test-key}
@@ -76,13 +86,16 @@ twilio:
   whatsapp-from: ${TWILIO_WHATSAPP_FROM:whatsapp:+10000000000}
 
 sendgrid:
-  api-key: ${SENDGRID_API_KEY:test-key}
+  api-key: ${SENDGRID_API_KEY}
   # info@theevicta.com
-  from-email: ${SENDGRID_FROM_EMAIL:transport@btl2026.com}
+  from-email: ${SENDGRID_FROM_EMAIL:info@theevicta.com}
   from-name: "BTL 2026 Transport"
 
 cors:
   allowed-origins: ${FRONTEND_BASE_URL:http://localhost:5173}
+
+rate-limit:
+  enabled: true   # set false in dev/test to bypass all rate limiting
 
 springdoc:
   api-docs:

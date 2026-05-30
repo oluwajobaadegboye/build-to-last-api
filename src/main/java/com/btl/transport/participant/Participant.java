@@ -58,4 +58,10 @@ public class Participant {
 
     @Column(name = "updated_at")
     private OffsetDateTime updatedAt;
+
+    @Column(name = "program_id")
+    private String programId;
+
+    @Column(name = "state", length = 2)
+    private String state;
 }

@@ -12,6 +12,9 @@ import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.AirportConfig;
 import com.btl.transport.notification.AirportConfigRepository;
 import com.btl.transport.notification.NotificationService;
+import com.btl.transport.notification.SheetsWebhookService;
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,9 +22,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +40,8 @@ public class ParticipantService {
     private final BtlCodeService btlCodeService;
     private final Leg4CalculatorService leg4Calculator;
     private final NotificationService notificationService;
+    private final SheetsWebhookService sheetsWebhookService;
+    private final ProgramRepository programRepository;
 
 //    @Value("${btl.frontend-base-url}")
 //    private String frontendBaseUrl;
@@ -43,14 +50,29 @@ public class ParticipantService {
     public Participant register(
         String fullName, String phone, String email,
         Integer hotelId, boolean shuttleOptIn,
-        String arrivalAirline, String arrivalFlightNumber, OffsetDateTime arrivalDatetime,
-        String departureAirline, String departureFlightNumber, OffsetDateTime departureDatetime
+        String arrivalAirline, String arrivalFlightNumber, LocalDateTime arrivalDatetime,
+        String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
+        String programId, String state
     ) {
-        if (participantRepository.existsByEmailIgnoreCase(email)) {
-            throw new IllegalArgumentException("An account with this email address already exists");
+        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        if (program != null && Boolean.FALSE.equals(program.getRegistrationOpen())) {
+            throw new RegistrationClosedException("Registration for this program is currently paused.");
         }
 
-        String btlCode = btlCodeService.generateNextCode();
+        if (programId != null) {
+            // Per-program email uniqueness
+            if (participantRepository.findByEmailIgnoreCaseAndProgramId(email, programId).isPresent()) {
+                throw new AlreadyRegisteredException("You have already registered for this program.");
+            }
+        } else {
+            // Legacy global check (no program scope)
+            if (participantRepository.existsByEmailIgnoreCase(email)) {
+                throw new IllegalArgumentException("An account with this email address already exists");
+            }
+        }
+
+        String ini = program != null ? program.getIni() : null;
+        String btlCode = btlCodeService.generateNextCode(programId != null ? programId : "default", ini);
 
         Hotel hotel = hotelId != null
             ? hotelRepository.findById(hotelId).orElse(null)
@@ -65,6 +87,8 @@ public class ParticipantService {
             .needsAttention(false)
             .shuttleOptIn(shuttleOptIn)
             .hotel(hotel)
+            .programId(programId)
+            .state(state)
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();
@@ -74,13 +98,14 @@ public class ParticipantService {
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
 
         if (arrivalFlightNumber != null && arrivalDatetime != null) {
+            OffsetDateTime arrivalOdt = arrivalDatetime.atOffset(ZoneOffset.UTC);
             boolean polling = isWithinPollingWindow(config, arrivalDatetime.toLocalDate());
             Flight arrival = Flight.builder()
                 .participant(participant)
                 .airline(arrivalAirline)
                 .flightNumber(arrivalFlightNumber)
                 .direction(Direction.TO_HOTEL)
-                .submittedDatetime(arrivalDatetime)
+                .submittedDatetime(arrivalOdt)
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(polling)
                 .airportCode("IND")
@@ -92,17 +117,17 @@ public class ParticipantService {
         }
 
         if (departureFlightNumber != null && departureDatetime != null) {
-            LocalTime departTime = departureDatetime.atZoneSameInstant(
-                ZoneId.of("America/Indiana/Indianapolis")).toLocalTime();
+            LocalTime departTime = departureDatetime.toLocalTime();
             LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
             var leg4From = leg4Calculator.calculate(departTime, hotel, defaultCutoff);
 
+            OffsetDateTime departureOdt = departureDatetime.atOffset(ZoneOffset.UTC);
             Flight departure = Flight.builder()
                 .participant(participant)
                 .airline(departureAirline)
                 .flightNumber(departureFlightNumber)
                 .direction(Direction.TO_AIRPORT)
-                .submittedDatetime(departureDatetime)
+                .submittedDatetime(departureOdt)
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(false)
                 .leg4PickupFrom(leg4From)
@@ -119,6 +144,13 @@ public class ParticipantService {
         } catch (Exception e) {
             log.warn("Notification failed for {} — registration still succeeded: {}", btlCode, e.getMessage());
         }
+
+        sheetsWebhookService.appendRegistration(
+            participant,
+            arrivalAirline, arrivalFlightNumber, arrivalDatetime,
+            departureAirline, departureFlightNumber, departureDatetime,
+            program != null ? program.getName() : null
+        );
 
         return participant;
     }
@@ -156,8 +188,9 @@ public class ParticipantService {
 
         if (dir == Direction.TO_AIRPORT) {
             AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            LocalTime departTime = submittedDatetime.atZoneSameInstant(
-                ZoneId.of("America/Indiana/Indianapolis")).toLocalTime();
+            Program prog = participant.getProgramId() != null
+                ? programRepository.findById(participant.getProgramId()).orElse(null) : null;
+            LocalTime departTime = submittedDatetime.atZoneSameInstant(programZone(prog)).toLocalTime();
             LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
             flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, participant.getHotel(), defaultCutoff));
         }
@@ -168,6 +201,13 @@ public class ParticipantService {
         participantRepository.save(participant);
 
         return flightRepository.save(flight);
+    }
+
+    private ZoneId programZone(Program program) {
+        if (program != null && program.getTimezone() != null && !program.getTimezone().isBlank()) {
+            try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
+        }
+        return ZoneId.of("America/New_York");
     }
 
     private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {

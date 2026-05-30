@@ -23,6 +23,7 @@
         <springdoc.version>2.6.0</springdoc.version>
         <testcontainers.version>1.20.3</testcontainers.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <bucket4j.version>8.10.1</bucket4j.version>
     </properties>
 
     <dependencies>
@@ -120,10 +121,24 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Bucket4j — in-memory token-bucket rate limiting -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>${bucket4j.version}</version>
+        </dependency>
+
         <!-- BCrypt (admin password hashing) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- AWS S3 (file upload storage) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.26.12</version>
         </dependency>
 
         <!-- Testing -->

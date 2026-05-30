@@ -1,8 +1,8 @@
 locals {
   secret_names = [
-    "btl/supabase-db-url",
-    "btl/supabase-db-username",
-    "btl/supabase-db-password",
+    "btl/db-url",
+    "btl/db-username",
+    "btl/db-password",
     "btl/aviationstack-api-key",
     "btl/twilio-account-sid",
     "btl/twilio-auth-token",
