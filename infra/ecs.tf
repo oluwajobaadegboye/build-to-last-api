@@ -80,7 +80,7 @@ resource "aws_ecs_service" "app" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
-  health_check_grace_period_seconds = 210
+  health_check_grace_period_seconds = 300
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
