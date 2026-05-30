@@ -20,8 +20,8 @@ resource "aws_lb_target_group" "app" {
     path                = "/actuator/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
-    interval            = 30
-    timeout             = 10
+    interval            = 60
+    timeout             = 30
   }
 
   tags = { Name = "${var.app_name}-tg" }
