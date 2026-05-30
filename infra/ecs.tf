@@ -29,22 +29,22 @@ resource "aws_ecs_task_definition" "app" {
     }]
 
     secrets = [
-      { name = "DB_URL",      valueFrom = aws_secretsmanager_secret.btl["btl/db-url"].arn },
-      { name = "DB_USERNAME", valueFrom = aws_secretsmanager_secret.btl["btl/db-username"].arn },
-      { name = "DB_PASSWORD", valueFrom = aws_secretsmanager_secret.btl["btl/db-password"].arn },
-      { name = "AVIATIONSTACK_API_KEY", valueFrom = aws_secretsmanager_secret.btl["btl/aviationstack-api-key"].arn },
-      { name = "TWILIO_ACCOUNT_SID",    valueFrom = aws_secretsmanager_secret.btl["btl/twilio-account-sid"].arn },
-      { name = "TWILIO_AUTH_TOKEN",     valueFrom = aws_secretsmanager_secret.btl["btl/twilio-auth-token"].arn },
-      { name = "TWILIO_FROM_NUMBER",    valueFrom = aws_secretsmanager_secret.btl["btl/twilio-from-number"].arn },
-      { name = "TWILIO_WHATSAPP_FROM",  valueFrom = aws_secretsmanager_secret.btl["btl/twilio-whatsapp-from"].arn },
-      { name = "SENDGRID_API_KEY",      valueFrom = aws_secretsmanager_secret.btl["btl/sendgrid-api-key"].arn },
-      { name = "SENDGRID_FROM_EMAIL",   valueFrom = aws_secretsmanager_secret.btl["btl/sendgrid-from-email"].arn },
-      { name = "FRONTEND_BASE_URL",      valueFrom = aws_secretsmanager_secret.btl["btl/frontend-base-url"].arn },
-      { name = "JWT_SECRET",            valueFrom = aws_secretsmanager_secret.btl["btl/jwt-secret"].arn },
-      { name = "ADMIN_1_USERNAME",      valueFrom = aws_secretsmanager_secret.btl["btl/admin-1-username"].arn },
-      { name = "ADMIN_1_PASSWORD_HASH", valueFrom = aws_secretsmanager_secret.btl["btl/admin-1-password-hash"].arn },
-      { name = "ADMIN_2_USERNAME",      valueFrom = aws_secretsmanager_secret.btl["btl/admin-2-username"].arn },
-      { name = "ADMIN_2_PASSWORD_HASH", valueFrom = aws_secretsmanager_secret.btl["btl/admin-2-password-hash"].arn },
+      { name = "DB_URL",                valueFrom = "${aws_secretsmanager_secret.db.arn}:url::" },
+      { name = "DB_USERNAME",           valueFrom = "${aws_secretsmanager_secret.db.arn}:username::" },
+      { name = "DB_PASSWORD",           valueFrom = "${aws_secretsmanager_secret.db.arn}:password::" },
+      { name = "AVIATIONSTACK_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:aviationstack-api-key::" },
+      { name = "TWILIO_ACCOUNT_SID",    valueFrom = "${aws_secretsmanager_secret.app.arn}:twilio-account-sid::" },
+      { name = "TWILIO_AUTH_TOKEN",     valueFrom = "${aws_secretsmanager_secret.app.arn}:twilio-auth-token::" },
+      { name = "TWILIO_FROM_NUMBER",    valueFrom = "${aws_secretsmanager_secret.app.arn}:twilio-from-number::" },
+      { name = "TWILIO_WHATSAPP_FROM",  valueFrom = "${aws_secretsmanager_secret.app.arn}:twilio-whatsapp-from::" },
+      { name = "SENDGRID_API_KEY",      valueFrom = "${aws_secretsmanager_secret.app.arn}:sendgrid-api-key::" },
+      { name = "SENDGRID_FROM_EMAIL",   valueFrom = "${aws_secretsmanager_secret.app.arn}:sendgrid-from-email::" },
+      { name = "FRONTEND_BASE_URL",     valueFrom = "${aws_secretsmanager_secret.app.arn}:frontend-base-url::" },
+      { name = "JWT_SECRET",            valueFrom = "${aws_secretsmanager_secret.app.arn}:jwt-secret::" },
+      { name = "ADMIN_1_USERNAME",      valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-1-username::" },
+      { name = "ADMIN_1_PASSWORD_HASH", valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-1-password-hash::" },
+      { name = "ADMIN_2_USERNAME",      valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-2-username::" },
+      { name = "ADMIN_2_PASSWORD_HASH", valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-2-password-hash::" },
     ]
 
     environment = [

@@ -7,6 +7,8 @@ import com.btl.transport.flight.FlightRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
 import com.btl.transport.participant.Participant;
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipant;
@@ -41,6 +43,7 @@ public class DriverController {
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
     private final NotificationConfigRepository notificationConfigRepository;
+    private final ProgramRepository programRepository;
 
     // ── DTOs ─────────────────────────────────────────────────────────────────
 
@@ -78,14 +81,20 @@ public class DriverController {
     ) {}
 
     record DriverMeResponse(
-        @JsonProperty("driver_id")   String driverId,
-        @JsonProperty("name")        String name,
-        @JsonProperty("phone")       String phone,
-        @JsonProperty("whatsapp")    String whatsapp,
-        @JsonProperty("driver_code") String driverCode,
-        @JsonProperty("program_id")  String programId,
-        @JsonProperty("admins")      List<AdminContact> admins,
-        @JsonProperty("runs")        List<RunSummary> runs
+        @JsonProperty("driver_id")          String driverId,
+        @JsonProperty("name")               String name,
+        @JsonProperty("phone")              String phone,
+        @JsonProperty("whatsapp")           String whatsapp,
+        @JsonProperty("driver_code")        String driverCode,
+        @JsonProperty("program_id")         String programId,
+        @JsonProperty("program_name")       String programName,
+        @JsonProperty("program_start")      String programStart,
+        @JsonProperty("program_end")        String programEnd,
+        @JsonProperty("program_logo_url")   String programLogoUrl,
+        @JsonProperty("vehicle_label")      String vehicleLabel,
+        @JsonProperty("vehicle_capacity")   Integer vehicleCapacity,
+        @JsonProperty("admins")             List<AdminContact> admins,
+        @JsonProperty("runs")               List<RunSummary> runs
     ) {}
 
     record UpdateStatusRequest(String status) {}
@@ -163,6 +172,15 @@ public class DriverController {
         NotificationConfig cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
         List<AdminContact> admins = buildAdminContacts(cfg);
 
+        // Load program info
+        Program program = driver.getProgramId() != null
+            ? programRepository.findById(driver.getProgramId()).orElse(null) : null;
+
+        // Derive vehicle from first run that has one assigned
+        var vehicleRun = runs.stream().filter(r -> r.getVehicle() != null).findFirst();
+        String vehicleLabel    = vehicleRun.map(r -> r.getVehicle().getLabel()).orElse(null);
+        Integer vehicleCapacity = vehicleRun.map(r -> r.getVehicle().getCapacity()).orElse(null);
+
         return ResponseEntity.ok(new DriverMeResponse(
             String.valueOf(driver.getId()),
             driver.getName(),
@@ -170,6 +188,12 @@ public class DriverController {
             driver.getWhatsapp(),
             driver.getDriverCode(),
             driver.getProgramId(),
+            program != null ? program.getName() : null,
+            program != null ? program.getStartDate() : null,
+            program != null ? program.getEndDate() : null,
+            program != null ? program.getLogoUrl() : null,
+            vehicleLabel,
+            vehicleCapacity,
             admins,
             runSummaries
         ));

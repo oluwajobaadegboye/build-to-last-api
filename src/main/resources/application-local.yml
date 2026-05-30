@@ -12,6 +12,7 @@
 spring:
   flyway:
     baseline-on-migrate: false   # V1 runs — creates full schema
+#    validate-on-migrate: false   # skip checksum checks in local dev
 
   jpa:
     show-sql: true               # helpful during local development
