@@ -33,4 +33,9 @@ public interface FlightRepository extends JpaRepository<Flight, Integer> {
     List<Flight> findByParticipantIn(List<Participant> participants);
 
     long countByPollingActiveTrue();
+
+    @Query("SELECT f FROM Flight f JOIN FETCH f.participant p WHERE p.programId = :programId AND f.direction = :direction ORDER BY f.submittedDatetime ASC")
+    List<Flight> findByParticipantProgramIdAndDirectionOrderBySubmittedDatetime(
+        @Param("programId") String programId,
+        @Param("direction") Direction direction);
 }

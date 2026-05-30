@@ -3,6 +3,7 @@ package com.btl.transport.run;
 import com.btl.transport.common.enums.ConferenceDay;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.RunStatusEnum;
+import com.btl.transport.common.enums.RunType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -57,6 +58,11 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     List<Run> findByProgramIdAndConferenceDateAndDirectionWithDetails(@Param("programId") String programId, @Param("date") LocalDate date, @Param("direction") Direction direction);
 
     long countByProgramIdAndConferenceDate(String programId, LocalDate date);
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId AND r.runType = :runType ORDER BY r.conferenceDate ASC, r.departTime ASC")
+    List<Run> findByProgramIdAndRunTypeOrderByConferenceDateAndDepartTime(
+        @Param("programId") String programId,
+        @Param("runType") RunType runType);
 
     @Query("""
         SELECT r FROM Run r

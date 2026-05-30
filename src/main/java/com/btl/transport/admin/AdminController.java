@@ -584,6 +584,157 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
+    @Operation(summary = "List all airport runs", description = "Returns all airport-type runs for the program across all conference days, with participant flight details")
+    @GetMapping("/airport-runs")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<Map<String, Object>>> getAirportRuns(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        List<Run> runs = programId != null
+            ? runRepository.findByProgramIdAndRunTypeOrderByConferenceDateAndDepartTime(programId, RunType.AIRPORT)
+            : runRepository.findAll().stream()
+                .filter(r -> r.getRunType() == RunType.AIRPORT)
+                .sorted(Comparator.comparing(Run::getConferenceDate, Comparator.nullsLast(Comparator.naturalOrder()))
+                    .thenComparing(r -> r.getDepartTime() != null ? r.getDepartTime() : ""))
+                .toList();
+        return ResponseEntity.ok(runs.stream().map(this::runDetailWithFlights).toList());
+    }
+
+    @Operation(summary = "Sync airport runs from flights", description = "Auto-groups participants by flight arrival/departure time into airport runs using the configured grouping window")
+    @PostMapping("/sync-airport-runs")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> syncAirportRuns(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        int groupingWindowMins = airportConfigRepository.findByConfigKey("main")
+            .map(c -> c.getGroupingWindowMins() != null ? c.getGroupingWindowMins() : 90)
+            .orElse(90);
+
+        long runCounter = runRepository.count();
+        int arrivalRunsCreated = 0;
+        int departureRunsCreated = 0;
+
+        for (Direction direction : new Direction[]{Direction.TO_HOTEL, Direction.TO_AIRPORT}) {
+            List<Flight> flights = programId != null
+                ? flightRepository.findByParticipantProgramIdAndDirectionOrderBySubmittedDatetime(programId, direction)
+                : flightRepository.findAll().stream()
+                    .filter(f -> f.getDirection() == direction)
+                    .sorted(Comparator.comparing(f -> f.getSubmittedDatetime() != null
+                        ? f.getSubmittedDatetime() : OffsetDateTime.MIN))
+                    .toList();
+
+            if (flights.isEmpty()) continue;
+
+            Set<Integer> alreadyAssigned = new HashSet<>();
+            List<Run> existingAirportRuns = programId != null
+                ? runRepository.findByProgramIdAndRunTypeOrderByConferenceDateAndDepartTime(programId, RunType.AIRPORT)
+                : List.of();
+            for (Run r : existingAirportRuns) {
+                if (r.getDirection() == direction) {
+                    runParticipantRepository.findByIdRunId(r.getId())
+                        .forEach(rp -> alreadyAssigned.add(rp.getId().getParticipantId()));
+                }
+            }
+
+            List<Flight> unassigned = flights.stream()
+                .filter(f -> f.getParticipant() != null && !alreadyAssigned.contains(f.getParticipant().getId()))
+                .filter(f -> f.getSubmittedDatetime() != null)
+                .toList();
+
+            if (unassigned.isEmpty()) continue;
+
+            List<List<Flight>> groups = new ArrayList<>();
+            List<Flight> currentGroup = new ArrayList<>();
+            OffsetDateTime groupStart = null;
+
+            for (Flight f : unassigned) {
+                if (groupStart == null) {
+                    groupStart = f.getSubmittedDatetime();
+                    currentGroup.add(f);
+                } else {
+                    long minutesDiff = java.time.Duration.between(groupStart, f.getSubmittedDatetime()).toMinutes();
+                    if (minutesDiff <= groupingWindowMins) {
+                        currentGroup.add(f);
+                    } else {
+                        groups.add(new ArrayList<>(currentGroup));
+                        currentGroup = new ArrayList<>();
+                        currentGroup.add(f);
+                        groupStart = f.getSubmittedDatetime();
+                    }
+                }
+            }
+            if (!currentGroup.isEmpty()) groups.add(currentGroup);
+
+            for (List<Flight> group : groups) {
+                OffsetDateTime latestFlight = group.stream()
+                    .map(Flight::getSubmittedDatetime)
+                    .max(Comparator.naturalOrder())
+                    .orElse(group.get(0).getSubmittedDatetime());
+
+                OffsetDateTime departOdt = latestFlight.plusMinutes(30);
+                String departTime = String.format("%02d:%02d",
+                    departOdt.getHour(), departOdt.getMinute());
+
+                LocalDate conferenceDate = group.get(0).getSubmittedDatetime().toLocalDate();
+
+                ConferenceDay conferenceDay = switch (conferenceDate.getDayOfWeek()) {
+                    case THURSDAY -> ConferenceDay.THURSDAY;
+                    case FRIDAY   -> ConferenceDay.FRIDAY;
+                    case SATURDAY -> ConferenceDay.SATURDAY;
+                    case SUNDAY   -> ConferenceDay.SUNDAY;
+                    default       -> null;
+                };
+
+                String dropoffLocation = group.stream()
+                    .map(f -> f.getParticipant().getHotel())
+                    .filter(Objects::nonNull)
+                    .map(h -> h.getHotelName())
+                    .distinct()
+                    .collect(Collectors.joining(" · "));
+                if (dropoffLocation.isBlank()) dropoffLocation = "Hotel";
+
+                String pickupLocation = direction == Direction.TO_HOTEL
+                    ? "Indianapolis Airport"
+                    : (dropoffLocation.isBlank() ? "Hotel" : dropoffLocation);
+                String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : "Indianapolis Airport";
+
+                Run run = Run.builder()
+                    .runId(String.format("RUN-%03d", ++runCounter))
+                    .runType(RunType.AIRPORT)
+                    .direction(direction)
+                    .conferenceDay(conferenceDay)
+                    .conferenceDate(conferenceDate)
+                    .departTime(departTime)
+                    .pickupLocation(pickupLocation)
+                    .dropoffLocation(dropLocation)
+                    .seatsTotal(15)
+                    .seatsFilled(group.size())
+                    .status(RunStatusEnum.SCHEDULED)
+                    .manifestSent(false)
+                    .programId(programId)
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+                run = runRepository.save(run);
+
+                for (Flight f : group) {
+                    RunParticipantId rpId = new RunParticipantId(run.getId(), f.getParticipant().getId());
+                    RunParticipant rp = RunParticipant.builder()
+                        .id(rpId)
+                        .boarded(false)
+                        .build();
+                    runParticipantRepository.save(rp);
+                }
+
+                if (direction == Direction.TO_HOTEL) arrivalRunsCreated++;
+                else departureRunsCreated++;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "arrival_runs_created",   arrivalRunsCreated,
+            "departure_runs_created", departureRunsCreated
+        ));
+    }
+
     @Operation(summary = "Create run", description = "Creates an ad-hoc transport run and associates it with the given program")
     @PostMapping("/run")
     @Transactional
@@ -844,6 +995,84 @@ public class AdminController {
                 .map(this::participantSummary)
                 .toList();
         m.put("participants", participants);
+        return m;
+    }
+
+    private Map<String, Object> runDetailWithFlights(Run r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.getId());
+        m.put("run_id", r.getRunId());
+        m.put("run_type", r.getRunType() != null ? r.getRunType().name().toLowerCase() : null);
+        m.put("direction", r.getDirection() != null ? r.getDirection().name().toLowerCase() : null);
+        m.put("conference_day", r.getConferenceDay() != null ? r.getConferenceDay().name().toLowerCase() : null);
+        m.put("conference_date", r.getConferenceDate() != null ? r.getConferenceDate().toString() : null);
+        m.put("depart_time", r.getDepartTime());
+        m.put("seats_total", r.getSeatsTotal());
+        m.put("seats_filled", r.getSeatsFilled());
+        m.put("seats_left", r.getSeatsRemaining());
+        m.put("status", r.getStatus() != null ? r.getStatus().name().toLowerCase() : null);
+        m.put("vehicle", r.getVehicle() != null ? Map.of(
+            "id", r.getVehicle().getId(),
+            "label", r.getVehicle().getLabel(),
+            "capacity", r.getVehicle().getCapacity()
+        ) : null);
+        m.put("driver", r.getDriver() != null ? Map.of(
+            "id", r.getDriver().getId(),
+            "name", r.getDriver().getName(),
+            "phone", r.getDriver().getPhone() != null ? r.getDriver().getPhone() : ""
+        ) : null);
+        m.put("manifest_sent", Boolean.TRUE.equals(r.getManifestSent()));
+        m.put("updated_at", r.getUpdatedAt() != null ? r.getUpdatedAt().toString() : null);
+        m.put("pickup_location", r.getPickupLocation());
+        m.put("dropoff_location", r.getDropoffLocation());
+
+        List<RunParticipant> rps = runParticipantRepository.findByIdRunId(r.getId());
+        List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
+        if (pids.isEmpty()) {
+            m.put("participants", List.of());
+            return m;
+        }
+
+        List<Participant> participants = participantRepository.findAllById(pids);
+        List<Flight> flights = flightRepository.findByParticipantIn(participants);
+
+        Map<Integer, Flight> arrivalByPid = new HashMap<>();
+        Map<Integer, Flight> departureByPid = new HashMap<>();
+        for (Flight f : flights) {
+            if (f.getParticipant() == null) continue;
+            int pid = f.getParticipant().getId();
+            if (f.getDirection() == Direction.TO_HOTEL) arrivalByPid.put(pid, f);
+            else if (f.getDirection() == Direction.TO_AIRPORT) departureByPid.put(pid, f);
+        }
+
+        List<Map<String, Object>> enrichedParticipants = participants.stream().map(p -> {
+            Map<String, Object> ps = new LinkedHashMap<>(participantSummary(p));
+            Flight arr = arrivalByPid.get(p.getId());
+            Flight dep = departureByPid.get(p.getId());
+            ps.put("flight_arrival", arr != null ? flightSummary(arr, p.getBtlCode()) : null);
+            ps.put("flight_departure", dep != null ? flightSummary(dep, p.getBtlCode()) : null);
+            return ps;
+        }).toList();
+
+        m.put("participants", enrichedParticipants);
+        return m;
+    }
+
+    private Map<String, Object> flightSummary(Flight f, String btlCode) {
+        if (f == null) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("flight_id", f.getFlightId());
+        m.put("btl_code", btlCode);
+        m.put("direction", f.getDirection() != null ? f.getDirection().name().toLowerCase() : null);
+        m.put("airline", f.getAirline());
+        m.put("flight_number", f.getFlightNumber());
+        m.put("submitted_datetime", f.getSubmittedDatetime() != null ? f.getSubmittedDatetime().toString() : null);
+        m.put("live_eta", f.getLiveEta() != null ? f.getLiveEta().toString() : null);
+        m.put("flight_status", f.getFlightStatus() != null ? f.getFlightStatus().name().toLowerCase() : "unknown");
+        m.put("delay_mins", f.getDelayMins() != null ? f.getDelayMins() : 0);
+        m.put("airport_code", f.getAirportCode());
+        m.put("polling_active", Boolean.TRUE.equals(f.getPollingActive()));
+        m.put("leg4_pickup_from", f.getLeg4PickupFrom() != null ? f.getLeg4PickupFrom().name().toLowerCase() : null);
         return m;
     }
 
