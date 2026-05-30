@@ -209,8 +209,9 @@ public class AdminController {
 
     @Operation(summary = "Get participant", description = "Returns a single participant summary by BTL code")
     @GetMapping("/participants/{btlCode}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
-        Participant p = participantRepository.findByBtlCode(btlCode)
+        Participant p = participantRepository.findByBtlCodeWithHotel(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
         return ResponseEntity.ok(participantSummary(p));
     }
@@ -499,6 +500,7 @@ public class AdminController {
 
     @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by BTL code")
     @GetMapping("/participant/{code}")
+    @Transactional(readOnly = true)
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> getParticipantDetail(
             @PathVariable String code) {
         Participant p = participantRepository.findByBtlCode(code)
@@ -513,6 +515,7 @@ public class AdminController {
 
     @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by BTL code")
     @PatchMapping("/participant/{code}")
+    @Transactional
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipant(
             @PathVariable String code,
             @RequestBody UpdateParticipantRequest req) {
@@ -553,6 +556,7 @@ public class AdminController {
 
     @Operation(summary = "Update run", description = "Updates a run's status, departure time, or seat count by string run ID")
     @PatchMapping("/run/{runId}")
+    @Transactional
     public ResponseEntity<AdminDtos.RunAdminResponse> updateRun(
             @PathVariable String runId,
             @RequestBody UpdateRunRequest req) {
@@ -579,6 +583,7 @@ public class AdminController {
 
     @Operation(summary = "Create run", description = "Creates an ad-hoc transport run and associates it with the given program")
     @PostMapping("/run")
+    @Transactional
     public ResponseEntity<AdminDtos.RunAdminResponse> createRun(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @RequestBody CreateRunRequest req) {
@@ -609,6 +614,7 @@ public class AdminController {
 
     @Operation(summary = "Get driver manifest", description = "Returns all runs and their passenger lists assigned to a driver, formatted as a manifest")
     @GetMapping("/manifest/{driverId}")
+    @Transactional(readOnly = true)
     public ResponseEntity<AdminDtos.ManifestResponse> getManifest(
             @PathVariable Integer driverId) {
         Driver driver = driverRepository.findById(driverId)
