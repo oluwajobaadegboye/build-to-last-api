@@ -74,6 +74,7 @@ public final class AdminDtos {
         String whatsapp,
         String email,
         @JsonProperty("login_token")     String   loginToken,
+        @JsonProperty("driver_code")     String   driverCode,
         @JsonProperty("available_dates") String[] availableDates,
         @JsonProperty("active_from")     String   activeFrom,
         @JsonProperty("created_at")      String   createdAt

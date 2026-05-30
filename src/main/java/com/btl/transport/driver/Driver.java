@@ -47,4 +47,7 @@ public class Driver {
 
     @Column(name = "login_token", unique = true)
     private String loginToken;
+
+    @Column(name = "driver_code", unique = true)
+    private String driverCode;
 }

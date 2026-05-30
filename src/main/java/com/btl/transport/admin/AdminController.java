@@ -369,10 +369,13 @@ public class AdminController {
         driver.setCreatedAt(OffsetDateTime.now());
         driver.setProgramId(programId);
         driver.setLoginToken(java.util.UUID.randomUUID().toString());
+        driver.setDriverCode("DRV-TEMP-" + System.currentTimeMillis());
         Driver saved = driverRepository.save(driver);
+        saved.setDriverCode(String.format("DRV-%03d", saved.getId()));
+        saved = driverRepository.save(saved);
         if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
             try {
-                String driverLink = frontendBaseUrl + "/driver?token=" + saved.getLoginToken();
+                String driverLink = frontendBaseUrl + "/driver?code=" + saved.getDriverCode();
                 sendDriverAccessEmail(saved, driverLink);
             } catch (Exception e) {
                 log.warn("Failed to send driver welcome email to {}: {}", saved.getEmail(), e.getMessage());
@@ -409,7 +412,7 @@ public class AdminController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Driver has no email address on file.");
         }
         try {
-            String driverLink = frontendBaseUrl + "/driver?token=" + d.getLoginToken();
+            String driverLink = frontendBaseUrl + "/driver?code=" + d.getDriverCode();
             sendDriverAccessEmail(d, driverLink);
         } catch (Exception e) {
             log.warn("Failed to resend driver link to {}: {}", d.getEmail(), e.getMessage());
@@ -915,6 +918,7 @@ public class AdminController {
         if (d == null) return null;
         return new AdminDtos.DriverAdminDto(
             String.valueOf(d.getId()), d.getName(), d.getPhone(), d.getWhatsapp(), d.getEmail(), d.getLoginToken(),
+            d.getDriverCode(),
             d.getAvailableDates(),
             d.getActiveFrom() != null ? d.getActiveFrom().toString() : null,
             d.getCreatedAt() != null ? d.getCreatedAt().toString() : null

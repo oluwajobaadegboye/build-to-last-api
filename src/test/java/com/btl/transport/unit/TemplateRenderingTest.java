@@ -13,7 +13,8 @@ class TemplateRenderingTest {
     private final NotificationService service = new NotificationService(
         mock(com.btl.transport.notification.TwilioService.class),
         mock(com.btl.transport.notification.SendGridService.class),
-        mock(com.btl.transport.notification.NotificationConfigRepository.class)
+        mock(com.btl.transport.notification.NotificationConfigRepository.class),
+        mock(com.btl.transport.program.ProgramRepository.class)
     );
 
     @Test
