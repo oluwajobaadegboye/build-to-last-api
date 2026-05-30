@@ -30,5 +30,7 @@ public interface FlightRepository extends JpaRepository<Flight, Integer> {
 
     List<Flight> findByParticipant(Participant participant);
 
+    List<Flight> findByParticipantIn(List<Participant> participants);
+
     long countByPollingActiveTrue();
 }

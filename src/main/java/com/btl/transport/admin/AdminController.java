@@ -35,6 +35,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -185,8 +186,17 @@ public class AdminController {
         int total = filtered.size();
         int fromIdx = Math.min(page * size, total);
         int toIdx   = Math.min(fromIdx + size, total);
-        List<Map<String, Object>> items = filtered.subList(fromIdx, toIdx).stream()
-            .map(this::participantSummary).toList();
+        List<Participant> pageItems = filtered.subList(fromIdx, toIdx);
+        List<Flight> pageFlights = flightRepository.findByParticipantIn(pageItems);
+        Map<Integer, Flight> arrivals = pageFlights.stream()
+            .filter(f -> Direction.TO_HOTEL.equals(f.getDirection()))
+            .collect(Collectors.toMap(f -> f.getParticipant().getId(), f -> f, (a, b) -> a));
+        Map<Integer, Flight> departures = pageFlights.stream()
+            .filter(f -> Direction.TO_AIRPORT.equals(f.getDirection()))
+            .collect(Collectors.toMap(f -> f.getParticipant().getId(), f -> f, (a, b) -> a));
+        List<AdminDtos.ParticipantAdminResponse> items = pageItems.stream()
+            .map(p -> toParticipantAdminResponse(p, arrivals.get(p.getId()), departures.get(p.getId())))
+            .toList();
 
         return ResponseEntity.ok(Map.of(
             "content", items,
