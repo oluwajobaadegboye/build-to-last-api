@@ -14,6 +14,7 @@ import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipant;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.btl.transport.infrastructure.StorageService;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DriverController {
 
+    private final StorageService storageService;
     private final DriverRepository driverRepository;
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
@@ -191,7 +193,7 @@ public class DriverController {
             program != null ? program.getName() : null,
             program != null ? program.getStartDate() : null,
             program != null ? program.getEndDate() : null,
-            program != null ? program.getLogoUrl() : null,
+            program != null ? storageService.presign(program.getLogoUrl()) : null,
             vehicleLabel,
             vehicleCapacity,
             admins,

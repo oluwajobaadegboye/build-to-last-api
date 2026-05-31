@@ -35,6 +35,7 @@ import java.nio.file.Paths;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import com.btl.transport.infrastructure.StorageService;
 import static com.btl.transport.participant.ParticipantDtos.*;
 
 @Tag(name = "Participant", description = "Public-facing participant registration, status, and flight update endpoints")
@@ -47,6 +48,7 @@ public class ParticipantController {
     @Value("${btl.uploads.dir:./uploads}")
     private String uploadsDir;
 
+    private final StorageService storageService;
     private final ParticipantService participantService;
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
@@ -102,7 +104,7 @@ public class ParticipantController {
         resp.put("phase", program.getPhase() != null ? program.getPhase() : "setup");
         resp.put("city", program.getCity() != null ? program.getCity() : "");
         resp.put("state", program.getState() != null ? program.getState() : "");
-        resp.put("logo_url", program.getLogoUrl() != null ? program.getLogoUrl() : "");
+        resp.put("logo_url", program.getLogoUrl() != null ? storageService.presign(program.getLogoUrl()) : "");
         resp.put("start_date", program.getStartDate() != null ? program.getStartDate() : "");
         resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
         resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);

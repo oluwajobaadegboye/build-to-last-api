@@ -8,8 +8,11 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.UUID;
 
 @Service("s3StorageService")
@@ -18,6 +21,7 @@ import java.util.UUID;
 public class S3StorageService implements StorageService {
 
     private final S3Client s3;
+    private final S3Presigner presigner;
 
     @Value("${btl.uploads.s3.bucket}")
     private String bucket;
@@ -27,6 +31,7 @@ public class S3StorageService implements StorageService {
 
     public S3StorageService() {
         this.s3 = S3Client.create();
+        this.presigner = S3Presigner.create();
     }
 
     @Override
@@ -49,6 +54,19 @@ public class S3StorageService implements StorageService {
         } catch (IOException e) {
             throw new RuntimeException("S3 upload failed: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public String presign(String url) {
+        if (url == null || url.isBlank()) return url;
+        int i = url.indexOf("/uploads/");
+        if (i < 0) return url;
+        String key = url.substring(i + 1);
+        GetObjectPresignRequest req = GetObjectPresignRequest.builder()
+            .signatureDuration(Duration.ofDays(7))
+            .getObjectRequest(r -> r.bucket(bucket).key(key))
+            .build();
+        return presigner.presignGetObject(req).url().toString();
     }
 
     private String getExtension(String filename) {
