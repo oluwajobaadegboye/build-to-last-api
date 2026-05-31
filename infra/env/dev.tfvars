@@ -11,4 +11,4 @@ max_capacity   = 1
 alert_email    = "oluwajobaadegboye@hotmail.com"
 
 tf_state_bucket = "btl-transport-terraform-state"
-github_org_repo = "your-org/btl-transport"   # REPLACE
+github_org_repo = "oluwajobaadegboye/build-to-last-api"

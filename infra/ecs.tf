@@ -52,6 +52,14 @@ resource "aws_ecs_task_definition" "app" {
       { name = "BTL_UPLOADS_S3_BUCKET",   value = aws_s3_bucket.uploads.id }
     ]
 
+    healthCheck = {
+      command     = ["CMD-SHELL", "curl -f http://$(hostname -i):8080/actuator/health || exit 1"]
+      interval    = 30
+      timeout     = 60
+      retries     = 3
+      startPeriod = 180
+    }
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -72,7 +80,7 @@ resource "aws_ecs_service" "app" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
-  health_check_grace_period_seconds = 120
+  health_check_grace_period_seconds = 300
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
