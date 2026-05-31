@@ -22,7 +22,9 @@ public class SheetsWebhookService {
     @Value("${btl.sheets.webhook-url:}")
     private String webhookUrl;
 
-    private final HttpClient http = HttpClient.newHttpClient();
+    private final HttpClient http = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.ALWAYS)
+            .build();
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Async
