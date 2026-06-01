@@ -98,9 +98,10 @@ public final class AdminDtos {
         VehicleAdminDto vehicle,
         DriverAdminDto driver,
         List<ParticipantAdminResponse> participants,
-        @JsonProperty("manifest_sent")    boolean manifestSent,
-        @JsonProperty("completed_at")     String completedAt,
-        @JsonProperty("updated_at")       String updatedAt
+        @JsonProperty("manifest_sent")       boolean manifestSent,
+        @JsonProperty("completed_at")        String completedAt,
+        @JsonProperty("updated_at")          String updatedAt,
+        @JsonProperty("whatsapp_group_link") String whatsappGroupLink
     ) {}
 
     record ManifestResponse(
