@@ -47,6 +47,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -611,6 +612,8 @@ public class AdminController {
         long runCounter = runRepository.count();
         int arrivalRunsCreated = 0;
         int departureRunsCreated = 0;
+        int arrivalParticipantsAdded = 0;
+        int departureParticipantsAdded = 0;
 
         for (Direction direction : new Direction[]{Direction.TO_HOTEL, Direction.TO_AIRPORT}) {
             List<Flight> flights = programId != null
@@ -641,16 +644,85 @@ public class AdminController {
 
             if (unassigned.isEmpty()) continue;
 
+            // Partition: flights that fit an existing run vs flights that need a new run
+            Map<Run, List<Flight>> addToExisting = new LinkedHashMap<>();
+            List<Flight> trulyNew = new ArrayList<>();
+
+            for (Flight f : unassigned) {
+                Run match = findBestMatchingRun(f, existingAirportRuns, direction, groupingWindowMins);
+                if (match != null) {
+                    addToExisting.computeIfAbsent(match, k -> new ArrayList<>()).add(f);
+                } else {
+                    trulyNew.add(f);
+                }
+            }
+
+            // Merge matched flights into their existing runs
+            for (Map.Entry<Run, List<Flight>> entry : addToExisting.entrySet()) {
+                Run run = entry.getKey();
+                List<Flight> newFlights = entry.getValue();
+
+                // Capacity guard: only fill remaining seats; overflow forms new groups
+                int remaining = run.getSeatsTotal() - run.getSeatsFilled();
+                List<Flight> toAdd   = newFlights.subList(0, Math.min(remaining, newFlights.size()));
+                List<Flight> overflow = newFlights.subList(Math.min(remaining, newFlights.size()), newFlights.size());
+                trulyNew.addAll(overflow);
+
+                for (Flight f : toAdd) {
+                    RunParticipantId rpId = new RunParticipantId(run.getId(), f.getParticipant().getId());
+                    runParticipantRepository.save(RunParticipant.builder().id(rpId).boarded(false).build());
+                }
+                run.setSeatsFilled(run.getSeatsFilled() + toAdd.size());
+
+                // Recompute departTime and dropoffLocation from ALL flights now in the run
+                List<Integer> participantIds = runParticipantRepository.findByIdRunId(run.getId())
+                    .stream().map(rp -> rp.getId().getParticipantId()).toList();
+                final Direction dir = direction;
+                List<Flight> allRunFlights = flightRepository.findAll().stream()
+                    .filter(fl -> fl.getParticipant() != null
+                        && participantIds.contains(fl.getParticipant().getId())
+                        && fl.getDirection() == dir
+                        && fl.getSubmittedDatetime() != null)
+                    .toList();
+                allRunFlights.stream()
+                    .map(Flight::getSubmittedDatetime)
+                    .max(Comparator.naturalOrder())
+                    .ifPresent(latest -> {
+                        OffsetDateTime newDepart = latest.plusMinutes(30);
+                        run.setDepartTime(String.format("%02d:%02d",
+                            newDepart.getHour(), newDepart.getMinute()));
+                    });
+                String newDropoff = allRunFlights.stream()
+                    .map(fl -> fl.getParticipant().getHotel())
+                    .filter(Objects::nonNull)
+                    .map(h -> h.getHotelName())
+                    .distinct()
+                    .collect(Collectors.joining(" · "));
+                if (!newDropoff.isBlank()) {
+                    if (dir == Direction.TO_HOTEL) {
+                        run.setDropoffLocation(newDropoff);
+                    } else {
+                        run.setPickupLocation(newDropoff);
+                    }
+                }
+                run.setUpdatedAt(OffsetDateTime.now());
+                runRepository.save(run);
+
+                if (direction == Direction.TO_HOTEL) arrivalParticipantsAdded += toAdd.size();
+                else departureParticipantsAdded += toAdd.size();
+            }
+
+            // Group truly new (unmatched) flights into new runs — original logic unchanged
             List<List<Flight>> groups = new ArrayList<>();
             List<Flight> currentGroup = new ArrayList<>();
             OffsetDateTime groupStart = null;
 
-            for (Flight f : unassigned) {
+            for (Flight f : trulyNew) {
                 if (groupStart == null) {
                     groupStart = f.getSubmittedDatetime();
                     currentGroup.add(f);
                 } else {
-                    long minutesDiff = java.time.Duration.between(groupStart, f.getSubmittedDatetime()).toMinutes();
+                    long minutesDiff = Duration.between(groupStart, f.getSubmittedDatetime()).toMinutes();
                     if (minutesDiff <= groupingWindowMins) {
                         currentGroup.add(f);
                     } else {
@@ -730,9 +802,46 @@ public class AdminController {
         }
 
         return ResponseEntity.ok(Map.of(
-            "arrival_runs_created",   arrivalRunsCreated,
-            "departure_runs_created", departureRunsCreated
+            "arrival_runs_created",         arrivalRunsCreated,
+            "departure_runs_created",       departureRunsCreated,
+            "arrival_participants_added",   arrivalParticipantsAdded,
+            "departure_participants_added", departureParticipantsAdded
         ));
+    }
+
+    private Run findBestMatchingRun(Flight f, List<Run> runs, Direction dir, int windowMins) {
+        if (f.getSubmittedDatetime() == null) return null;
+        OffsetDateTime flightTime = f.getSubmittedDatetime();
+        LocalDate flightDate = flightTime.toLocalDate();
+
+        Run best = null;
+        long bestDiff = Long.MAX_VALUE;
+
+        for (Run run : runs) {
+            if (run.getDirection() != dir) continue;
+            if (run.getDepartTime() == null || run.getConferenceDate() == null) continue;
+            if (!flightDate.equals(run.getConferenceDate())) continue;
+            if (run.getSeatsFilled() >= run.getSeatsTotal()) continue;
+
+            String[] parts = run.getDepartTime().split(":");
+            if (parts.length < 2) continue;
+            OffsetDateTime departOdt = flightTime
+                .withHour(Integer.parseInt(parts[0]))
+                .withMinute(Integer.parseInt(parts[1]))
+                .withSecond(0).withNano(0);
+            OffsetDateTime existingLatest = departOdt.minusMinutes(30);
+            OffsetDateTime windowStart    = existingLatest.minusMinutes(windowMins);
+            OffsetDateTime windowEnd      = existingLatest.plusMinutes(windowMins);
+
+            if (!flightTime.isBefore(windowStart) && !flightTime.isAfter(windowEnd)) {
+                long diff = Math.abs(Duration.between(existingLatest, flightTime).toMinutes());
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    best = run;
+                }
+            }
+        }
+        return best;
     }
 
     @Operation(summary = "Create run", description = "Creates an ad-hoc transport run and associates it with the given program")
