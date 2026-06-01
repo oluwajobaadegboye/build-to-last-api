@@ -85,6 +85,9 @@ public class Run {
     @Column(name = "program_id")
     private String programId;
 
+    @Column(name = "whatsapp_group_link")
+    private String whatsappGroupLink;
+
     public LocalTime getDepartTimeAsLocalTime() {
         return departTime != null ? LocalTime.parse(departTime) : null;
     }

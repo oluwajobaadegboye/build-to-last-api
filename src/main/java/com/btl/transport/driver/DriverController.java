@@ -57,29 +57,31 @@ public class DriverController {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record PassengerSummary(
-        @JsonProperty("btl_code")       String btlCode,
-        @JsonProperty("full_name")      String fullName,
-        @JsonProperty("boarded")        Boolean boarded,
-        @JsonProperty("hotel_name")     String hotelName,
-        @JsonProperty("flight_airline") String flightAirline,
-        @JsonProperty("flight_number")  String flightNumber,
-        @JsonProperty("flight_time")    String flightTime
+        @JsonProperty("btl_code")        String btlCode,
+        @JsonProperty("full_name")       String fullName,
+        @JsonProperty("boarded")         Boolean boarded,
+        @JsonProperty("hotel_name")      String hotelName,
+        @JsonProperty("phone_whatsapp")  String phoneWhatsapp,
+        @JsonProperty("flight_airline")  String flightAirline,
+        @JsonProperty("flight_number")   String flightNumber,
+        @JsonProperty("flight_time")     String flightTime
     ) {}
 
     record RunSummary(
-        @JsonProperty("run_id")           String runId,
-        @JsonProperty("direction")        String direction,
-        @JsonProperty("run_type")         String runType,
-        @JsonProperty("conference_day")   String conferenceDay,
-        @JsonProperty("conference_date")  String conferenceDate,
-        @JsonProperty("depart_time")      String departTime,
-        @JsonProperty("pickup_location")  String pickupLocation,
-        @JsonProperty("dropoff_location") String dropoffLocation,
-        @JsonProperty("seats_total")      int seatsTotal,
-        @JsonProperty("seats_filled")     int seatsFilled,
-        @JsonProperty("status")           String status,
-        @JsonProperty("completed_at")     String completedAt,
-        @JsonProperty("passengers")       List<PassengerSummary> passengers
+        @JsonProperty("run_id")                String runId,
+        @JsonProperty("direction")             String direction,
+        @JsonProperty("run_type")              String runType,
+        @JsonProperty("conference_day")        String conferenceDay,
+        @JsonProperty("conference_date")       String conferenceDate,
+        @JsonProperty("depart_time")           String departTime,
+        @JsonProperty("pickup_location")       String pickupLocation,
+        @JsonProperty("dropoff_location")      String dropoffLocation,
+        @JsonProperty("seats_total")           int seatsTotal,
+        @JsonProperty("seats_filled")          int seatsFilled,
+        @JsonProperty("status")                String status,
+        @JsonProperty("completed_at")          String completedAt,
+        @JsonProperty("whatsapp_group_link")   String whatsappGroupLink,
+        @JsonProperty("passengers")            List<PassengerSummary> passengers
     ) {}
 
     record DriverMeResponse(
@@ -100,6 +102,8 @@ public class DriverController {
     ) {}
 
     record UpdateStatusRequest(String status) {}
+
+    record UpdateGroupLinkRequest(@JsonProperty("whatsapp_group_link") String whatsappGroupLink) {}
 
     // ── Endpoints ─────────────────────────────────────────────────────────────
 
@@ -147,6 +151,7 @@ public class DriverController {
                     p.getBtlCode(), p.getFullName(),
                     Boolean.TRUE.equals(rp.getBoarded()),
                     hotelName,
+                    p.getPhone(),
                     flight != null ? flight.getAirline() : null,
                     flight != null ? flight.getFlightNumber() : null,
                     flight != null && flight.getSubmittedDatetime() != null ? flight.getSubmittedDatetime().toString() : null
@@ -166,6 +171,7 @@ public class DriverController {
                 run.getSeatsFilled() != null ? run.getSeatsFilled() : 0,
                 run.getStatus() != null ? run.getStatus().name().toLowerCase() : null,
                 run.getCompletedAt() != null ? run.getCompletedAt().toString() : null,
+                run.getWhatsappGroupLink(),
                 passengers
             );
         }).toList();
@@ -228,6 +234,32 @@ public class DriverController {
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
         return ResponseEntity.ok(Map.of("status", newStatus.name().toLowerCase()));
+    }
+
+    @Operation(summary = "Set group chat link", description = "Driver saves or clears the WhatsApp group invite link for a run. Link is tied to the run, not the driver.")
+    @PatchMapping("/run/{runId}/group-link")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateGroupLink(
+            @PathVariable String runId,
+            @RequestParam String code,
+            @RequestBody UpdateGroupLinkRequest req) {
+        Driver driver = driverRepository.findByDriverCode(code.toUpperCase())
+            .orElseThrow(() -> new EntityNotFoundException("Invalid driver code."));
+        Run run = runRepository.findByRunId(runId)
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        if (run.getDriver() == null || !run.getDriver().getId().equals(driver.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This run is not assigned to you.");
+        }
+        String link = req.whatsappGroupLink();
+        if (link != null && !link.isBlank() && !link.startsWith("https://chat.whatsapp.com/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid WhatsApp group link.");
+        }
+        run.setWhatsappGroupLink(link != null && link.isBlank() ? null : link);
+        run.setUpdatedAt(OffsetDateTime.now());
+        runRepository.save(run);
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("whatsapp_group_link", run.getWhatsappGroupLink());
+        return ResponseEntity.ok(resp);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

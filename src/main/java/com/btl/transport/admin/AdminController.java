@@ -337,6 +337,26 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    @Operation(summary = "Set group chat link", description = "Admin sets or clears the WhatsApp group invite link for a run. Accepts whatsapp_group_link as a string or null.")
+    @PatchMapping("/runs/{runId}/group-link")
+    public ResponseEntity<Map<String, Object>> updateRunGroupLink(
+            @PathVariable String runId,
+            @RequestBody java.util.Map<String, Object> req) {
+        Run run = runRepository.findByRunId(runId)
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        String link = req.get("whatsapp_group_link") instanceof String s ? s : null;
+        if (link != null && !link.isBlank() && !link.startsWith("https://chat.whatsapp.com/")) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid WhatsApp group link.");
+        }
+        run.setWhatsappGroupLink(link != null && link.isBlank() ? null : link);
+        run.setUpdatedAt(OffsetDateTime.now());
+        runRepository.save(run);
+        java.util.Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("whatsapp_group_link", run.getWhatsappGroupLink());
+        return ResponseEntity.ok(resp);
+    }
+
     @Operation(summary = "Mark participant boarding status", description = "Records whether a participant has boarded a specific run, stamping the board time when true")
     @PatchMapping("/run-participants/boarded")
     public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
@@ -1281,7 +1301,8 @@ public class AdminController {
             participants != null ? participants : List.of(),
             Boolean.TRUE.equals(r.getManifestSent()),
             r.getCompletedAt() != null ? r.getCompletedAt().toString() : null,
-            r.getUpdatedAt() != null ? r.getUpdatedAt().toString() : null
+            r.getUpdatedAt() != null ? r.getUpdatedAt().toString() : null,
+            r.getWhatsappGroupLink()
         );
     }
 
