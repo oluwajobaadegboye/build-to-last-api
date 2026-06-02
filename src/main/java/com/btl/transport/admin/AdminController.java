@@ -92,6 +92,12 @@ public class AdminController {
         @JsonProperty("seats_total") Integer seatsTotal
     ) {}
 
+    public record MoveParticipantRequest(
+        @JsonProperty("btl_code")    String btlCode,
+        @JsonProperty("from_run_id") String fromRunId,
+        @JsonProperty("to_run_id")   String toRunId
+    ) {}
+
     public record CreateRunRequest(
         @JsonProperty("run_type")        String runType,
         String direction,
@@ -732,39 +738,7 @@ public class AdminController {
                     runParticipantRepository.save(RunParticipant.builder().id(rpId).boarded(false).build());
                 }
                 run.setSeatsFilled(run.getSeatsFilled() + toAdd.size());
-
-                // Recompute departTime and dropoffLocation from ALL flights now in the run
-                List<Integer> participantIds = runParticipantRepository.findByIdRunId(run.getId())
-                    .stream().map(rp -> rp.getId().getParticipantId()).toList();
-                final Direction dir = direction;
-                List<Flight> allRunFlights = flightRepository.findAll().stream()
-                    .filter(fl -> fl.getParticipant() != null
-                        && participantIds.contains(fl.getParticipant().getId())
-                        && fl.getDirection() == dir
-                        && fl.getSubmittedDatetime() != null)
-                    .toList();
-                allRunFlights.stream()
-                    .map(Flight::getSubmittedDatetime)
-                    .max(Comparator.naturalOrder())
-                    .ifPresent(latest -> {
-                        OffsetDateTime newDepart = latest.plusMinutes(30);
-                        run.setDepartTime(String.format("%02d:%02d",
-                            newDepart.getHour(), newDepart.getMinute()));
-                    });
-                String newDropoff = allRunFlights.stream()
-                    .map(fl -> fl.getParticipant().getHotel())
-                    .filter(Objects::nonNull)
-                    .map(h -> h.getHotelName())
-                    .distinct()
-                    .collect(Collectors.joining(" · "));
-                if (!newDropoff.isBlank()) {
-                    if (dir == Direction.TO_HOTEL) {
-                        run.setDropoffLocation(newDropoff);
-                    } else {
-                        run.setPickupLocation(newDropoff);
-                    }
-                }
-                run.setUpdatedAt(OffsetDateTime.now());
+                recomputeRunDepartAndLocations(run);
                 runRepository.save(run);
 
                 if (direction == Direction.TO_HOTEL) arrivalParticipantsAdded += toAdd.size();
@@ -868,6 +842,81 @@ public class AdminController {
         ));
     }
 
+    private void recomputeRunDepartAndLocations(Run run) {
+        Direction direction = run.getDirection();
+        List<Integer> pids = runParticipantRepository.findByIdRunId(run.getId())
+            .stream().map(rp -> rp.getId().getParticipantId()).toList();
+        List<Flight> flights = flightRepository.findAll().stream()
+            .filter(fl -> fl.getParticipant() != null
+                && pids.contains(fl.getParticipant().getId())
+                && fl.getDirection() == direction
+                && fl.getSubmittedDatetime() != null)
+            .toList();
+        flights.stream().map(Flight::getSubmittedDatetime).max(Comparator.naturalOrder())
+            .ifPresent(latest -> {
+                OffsetDateTime d = latest.plusMinutes(30);
+                run.setDepartTime(String.format("%02d:%02d", d.getHour(), d.getMinute()));
+            });
+        String hotels = flights.stream()
+            .map(fl -> fl.getParticipant().getHotel()).filter(Objects::nonNull)
+            .map(h -> h.getHotelName()).distinct().collect(Collectors.joining(" · "));
+        if (!hotels.isBlank()) {
+            if (direction == Direction.TO_HOTEL) run.setDropoffLocation(hotels);
+            else run.setPickupLocation(hotels);
+        }
+        run.setUpdatedAt(OffsetDateTime.now());
+    }
+
+    @Operation(summary = "Move participant between runs", description = "Moves a participant from one airport run to another of the same direction and date. Recalculates departure times on both runs. Deletes the source run if it becomes empty.")
+    @PatchMapping("/run-participants/move")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> moveParticipant(@RequestBody MoveParticipantRequest req) {
+        Participant p = participantRepository.findByBtlCode(req.btlCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        Run from = runRepository.findByRunId(req.fromRunId())
+            .orElseThrow(() -> new EntityNotFoundException("Source run not found: " + req.fromRunId()));
+        Run to = runRepository.findByRunId(req.toRunId())
+            .orElseThrow(() -> new EntityNotFoundException("Target run not found: " + req.toRunId()));
+
+        if (req.fromRunId().equals(req.toRunId()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Source and target runs are the same.");
+        if (from.getDirection() != to.getDirection())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot move between runs of different directions.");
+        if (!java.util.Objects.equals(from.getConferenceDate(), to.getConferenceDate()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot move between runs on different dates.");
+        if (to.getSeatsFilled() != null && to.getSeatsTotal() != null
+                && to.getSeatsFilled() >= to.getSeatsTotal())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target run is full.");
+
+        RunParticipantId fromId = new RunParticipantId(from.getId(), p.getId());
+        if (!runParticipantRepository.existsById(fromId))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Participant is not in the source run.");
+        if (runParticipantRepository.existsById(new RunParticipantId(to.getId(), p.getId())))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Participant is already in the target run.");
+
+        // Remove from source
+        runParticipantRepository.deleteById(fromId);
+        if (from.getSeatsFilled() != null && from.getSeatsFilled() > 0)
+            from.setSeatsFilled(from.getSeatsFilled() - 1);
+
+        List<RunParticipant> remaining = runParticipantRepository.findByIdRunId(from.getId());
+        if (remaining.isEmpty()) {
+            runRepository.delete(from);
+        } else {
+            recomputeRunDepartAndLocations(from);
+            runRepository.save(from);
+        }
+
+        // Add to target
+        runParticipantRepository.save(RunParticipant.builder()
+            .id(new RunParticipantId(to.getId(), p.getId())).boarded(false).build());
+        to.setSeatsFilled(to.getSeatsFilled() != null ? to.getSeatsFilled() + 1 : 1);
+        recomputeRunDepartAndLocations(to);
+        runRepository.save(to);
+
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     private Run findBestMatchingRun(Flight f, List<Run> runs, Direction dir, int windowMins) {
         if (f.getSubmittedDatetime() == null) return null;
         OffsetDateTime flightTime = f.getSubmittedDatetime();
@@ -877,6 +926,7 @@ public class AdminController {
         long bestDiff = Long.MAX_VALUE;
 
         for (Run run : runs) {
+            if (run.getDriver() != null) continue;  // locked — driver already assigned
             if (run.getDirection() != dir) continue;
             if (run.getDepartTime() == null || run.getConferenceDate() == null) continue;
             if (!flightDate.equals(run.getConferenceDate())) continue;
