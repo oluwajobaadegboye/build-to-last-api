@@ -561,6 +561,43 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
+    @Operation(summary = "Delete participant", description = "Permanently deletes a participant. If their run becomes empty the run is also deleted; otherwise only their seat is freed.")
+    @DeleteMapping("/participant/{code}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteParticipant(@PathVariable String code) {
+        Participant p = participantRepository.findByBtlCode(code)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+
+        List<RunParticipant> participantRps =
+            runParticipantRepository.findByIdParticipantId(p.getId());
+
+        for (RunParticipant rp : participantRps) {
+            Run run = runRepository.findById(rp.getId().getRunId()).orElse(null);
+            if (run == null) continue;
+
+            List<RunParticipant> allInRun =
+                runParticipantRepository.findByIdRunId(run.getId());
+            int remaining = allInRun.size() - 1;
+
+            if (remaining <= 0) {
+                // Last passenger — delete the entire run group
+                runParticipantRepository.deleteAll(allInRun);
+                runRepository.delete(run);
+            } else {
+                // Others remain — free this seat only
+                runParticipantRepository.delete(rp);
+                if (run.getSeatsFilled() != null && run.getSeatsFilled() > 0) {
+                    run.setSeatsFilled(run.getSeatsFilled() - 1);
+                    runRepository.save(run);
+                }
+            }
+        }
+
+        flightRepository.deleteAll(flightRepository.findByParticipant(p));
+        participantRepository.delete(p);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     // ── Alert (singular path alias) ────────────────────────────────────────
 
     @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given BTL code")
