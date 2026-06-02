@@ -22,6 +22,9 @@ public class SheetsWebhookService {
     @Value("${btl.sheets.webhook-url:}")
     private String webhookUrl;
 
+    @Value("${btl.sheets.enabled:true}")
+    private boolean enabled;
+
     private final HttpClient http = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.ALWAYS)
             .build();
@@ -34,7 +37,7 @@ public class SheetsWebhookService {
             String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
             String programName) {
 
-        if (webhookUrl == null || webhookUrl.isBlank()) return;
+        if (!enabled || webhookUrl == null || webhookUrl.isBlank()) return;
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("registeredAt",            p.getCreatedAt() != null ? p.getCreatedAt().toString() : "");
