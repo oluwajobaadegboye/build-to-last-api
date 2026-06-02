@@ -674,7 +674,6 @@ public class AdminController {
             .map(c -> c.getGroupingWindowMins() != null ? c.getGroupingWindowMins() : 90)
             .orElse(90);
 
-        long runCounter = runRepository.count();
         int arrivalRunsCreated = 0;
         int departureRunsCreated = 0;
         int arrivalParticipantsAdded = 0;
@@ -802,7 +801,7 @@ public class AdminController {
                 String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : "Indianapolis Airport";
 
                 Run run = Run.builder()
-                    .runId(String.format("RUN-%03d", ++runCounter))
+                    .runId("RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase())
                     .runType(RunType.AIRPORT)
                     .direction(direction)
                     .conferenceDay(conferenceDay)
@@ -1532,8 +1531,7 @@ public class AdminController {
     }
 
     private String generateAdHocRunId() {
-        long count = runRepository.count() + 1;
-        return String.format("RUN-%03d", count);
+        return "RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
     // ── Programs ──────────────────────────────────────────────────────────
