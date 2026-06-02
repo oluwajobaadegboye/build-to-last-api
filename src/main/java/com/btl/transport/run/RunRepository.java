@@ -5,6 +5,7 @@ import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.RunStatusEnum;
 import com.btl.transport.common.enums.RunType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -50,6 +51,10 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     List<Run> findAllWithDetails();
 
     List<Run> findByDriverIdOrderByConferenceDateAscDepartTimeAsc(Integer driverId);
+
+    @Modifying
+    @Query("UPDATE Run r SET r.driver = null WHERE r.driver.id = :driverId")
+    void clearDriverFromRuns(@Param("driverId") Integer driverId);
 
     @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId AND r.conferenceDate = :date ORDER BY r.departTime ASC")
     List<Run> findByProgramIdAndConferenceDateWithDetailsOrderByDepartTimeAsc(@Param("programId") String programId, @Param("date") LocalDate date);

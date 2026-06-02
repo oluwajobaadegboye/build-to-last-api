@@ -417,9 +417,11 @@ public class AdminController {
         return ResponseEntity.ok(toDriverDto(driverRepository.save(d)));
     }
 
-    @Operation(summary = "Delete driver", description = "Permanently deletes a driver by ID")
+    @Operation(summary = "Delete driver", description = "Permanently deletes a driver, unassigning them from any runs first")
     @DeleteMapping("/drivers/{id}")
+    @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteDriver(@PathVariable Integer id) {
+        runRepository.clearDriverFromRuns(id);
         driverRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
