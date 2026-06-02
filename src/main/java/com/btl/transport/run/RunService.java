@@ -66,8 +66,7 @@ public class RunService {
     }
 
     private String generateRunId() {
-        long count = runRepository.count() + 1;
-        return String.format("RUN-%03d", count);
+        return "RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
     public List<Run> getRunsForDate(LocalDate date) {
