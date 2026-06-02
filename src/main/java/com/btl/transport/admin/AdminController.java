@@ -561,6 +561,29 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
+    @Operation(summary = "Delete participant", description = "Permanently deletes a participant, removing all run assignments (decrementing seats_filled) and all associated flights")
+    @DeleteMapping("/participant/{code}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteParticipant(@PathVariable String code) {
+        Participant p = participantRepository.findByBtlCode(code)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+
+        List<RunParticipant> rps = runParticipantRepository.findByIdParticipantId(p.getId());
+        for (RunParticipant rp : rps) {
+            runRepository.findById(rp.getId().getRunId()).ifPresent(run -> {
+                if (run.getSeatsFilled() != null && run.getSeatsFilled() > 0) {
+                    run.setSeatsFilled(run.getSeatsFilled() - 1);
+                    runRepository.save(run);
+                }
+            });
+        }
+        runParticipantRepository.deleteAll(rps);
+        flightRepository.deleteAll(flightRepository.findByParticipant(p));
+        participantRepository.delete(p);
+
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     // ── Alert (singular path alias) ────────────────────────────────────────
 
     @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given BTL code")
