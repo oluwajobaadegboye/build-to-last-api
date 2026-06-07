@@ -292,6 +292,12 @@ public class ParticipantController {
 
     private RoomDto buildRoomDto(Participant p, ProgramInfoDto programInfo) {
         RoomOccupant occ = roomOccupantRepository.findFirstByParticipantId(p.getId()).orElse(null);
+        // Fallback: participants who registered before the CSV was imported won't have participant_id set
+        if (occ == null && p.getEmail() != null && p.getProgramId() != null) {
+            occ = roomOccupantRepository
+                .findByProgramIdAndEmailIgnoreCase(p.getProgramId(), p.getEmail())
+                .orElse(null);
+        }
         if (occ == null) return null;
 
         RoomAssignment room = occ.getRoom();
@@ -315,7 +321,11 @@ public class ParticipantController {
         List<RoommateSummary> roommates = null;
         if (roommateVisible) {
             roommates = room.getOccupants().stream()
-                .filter(o -> o.getParticipant() == null || !o.getParticipant().getId().equals(p.getId()))
+                .filter(o -> {
+                    if (o.getParticipant() != null) return !o.getParticipant().getId().equals(p.getId());
+                    if (p.getEmail() != null && p.getEmail().equalsIgnoreCase(o.getEmail())) return false;
+                    return true;
+                })
                 .filter(o -> o.getName() != null && !o.getName().isBlank())
                 .map(o -> new RoommateSummary(o.getName(), o.getEmail(), o.getPhone()))
                 .toList();
