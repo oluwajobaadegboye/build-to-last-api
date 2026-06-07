@@ -66,6 +66,9 @@ public class NotificationConfig {
     @Column(name = "template_reschedule")
     private String templateReschedule;
 
+    @Column(name = "template_room_assignment", columnDefinition = "TEXT")
+    private String templateRoomAssignment;
+
     @Column(name = "reminder_before_mins")
     private Integer reminderBeforeMins;
 

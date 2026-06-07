@@ -160,6 +160,87 @@ public final class AdminDtos {
 
     record SuccessResponse(boolean success) {}
 
+    // ── Room ──────────────────────────────────────────────────────────────
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomOccupantDto(
+        int slot,
+        @JsonProperty("participant_id") Integer participantId,
+        String name,
+        String email,
+        String phone
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomAssignmentDto(
+        int id,
+        @JsonProperty("hotel_id")   Integer hotelId,
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        String gender,
+        String notes,
+        List<RoomOccupantDto> occupants
+    ) {}
+
+    record AccommodationContactDto(
+        int id,
+        @JsonProperty("program_id") String programId,
+        String name,
+        String phone,
+        String whatsapp,
+        @JsonProperty("sort_order") int sortOrder
+    ) {}
+
+    record ImportResultDto(
+        @JsonProperty("created_rooms")       int createdRooms,
+        @JsonProperty("updated_rooms")       int updatedRooms,
+        @JsonProperty("moved_occupants")     int movedOccupants,
+        @JsonProperty("new_occupants")       int newOccupants,
+        @JsonProperty("unmatched_occupants") List<UnmatchedOccupant> unmatchedOccupants
+    ) {}
+
+    record UnmatchedOccupant(String name, String email, String phone) {}
+
+    record CreateRoomRequest(
+        @JsonProperty("hotel_id")   Integer hotelId,
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        String gender,
+        String notes
+    ) {}
+
+    record UpdateRoomRequest(
+        String gender,
+        @JsonProperty("room_type") String roomType,
+        String notes
+    ) {}
+
+    record UpsertOccupantRequest(
+        String name,
+        String email,
+        String phone
+    ) {}
+
+    record ReallocRequest(
+        @JsonProperty("from_room_id") Integer fromRoomId,
+        @JsonProperty("from_slot")    Integer fromSlot,
+        @JsonProperty("to_room_id")   Integer toRoomId
+    ) {}
+
+    record CreateAccomContactRequest(
+        String name,
+        String phone,
+        String whatsapp
+    ) {}
+
+    record UpdateAccomContactRequest(
+        String name,
+        String phone,
+        String whatsapp
+    ) {}
+
     record ProgramResponse(
         String id,
         String name,
@@ -184,6 +265,7 @@ public final class AdminDtos {
         @JsonProperty("evening_runs") Object eveningRuns,
         @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
+        @JsonProperty("roommate_visible") Boolean roommateVisible,
         @JsonProperty("created_at") String createdAt
     ) {}
 

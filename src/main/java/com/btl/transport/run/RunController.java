@@ -31,10 +31,12 @@ public class RunController {
     @GetMapping("/shuttle-status")
     public ResponseEntity<Map<String, Object>> shuttleStatus(
             @RequestParam(name = "program_id", required = false) String programId) {
-        List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
+        List<Hotel> hotels = programId != null
+                ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+                : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
         List<Run> allRuns = programId != null
-                ? runRepository.findByProgramIdWithDetails(programId)
-                : runRepository.findAllWithDetails();
+                ? runRepository.findShuttleRunsByProgramIdWithDetails(programId)
+                : runRepository.findAllShuttleRunsWithDetails();
 
         Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
         for (ConferenceDay day : ConferenceDay.values()) {

@@ -118,12 +118,30 @@ public final class ParticipantDtos {
         @JsonProperty("end_date") String endDate
     ) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoommateSummary(
+        String name,
+        String email,
+        String phone
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomDto(
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        @JsonProperty("hotel_name") String hotelName,
+        int guests,
+        int capacity,
+        List<RoommateSummary> roommates
+    ) {}
+
     record ParticipantStatusResponse(
         ParticipantDto participant,
         FlightDto arrival,
         FlightDto departure,
         List<RunDto> runs,
         @JsonProperty("program") ProgramInfoDto program,
+        @JsonProperty("room") RoomDto room,
         @JsonProperty("generated_at") String generatedAt
     ) {}
 }

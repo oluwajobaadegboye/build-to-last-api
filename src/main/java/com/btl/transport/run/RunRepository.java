@@ -53,6 +53,12 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId")
     List<Run> findByProgramIdWithDetails(@Param("programId") String programId);
 
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.runType = com.btl.transport.common.enums.RunType.SHUTTLE")
+    List<Run> findAllShuttleRunsWithDetails();
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId AND r.runType = com.btl.transport.common.enums.RunType.SHUTTLE")
+    List<Run> findShuttleRunsByProgramIdWithDetails(@Param("programId") String programId);
+
     List<Run> findByDriverIdOrderByConferenceDateAscDepartTimeAsc(Integer driverId);
 
     @Modifying

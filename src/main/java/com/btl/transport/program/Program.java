@@ -95,6 +95,9 @@ public class Program {
     @Column(name = "timezone")
     private String timezone;
 
+    @Column(name = "roommate_visible")
+    private Boolean roommateVisible;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

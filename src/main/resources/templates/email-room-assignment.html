@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BTL 2026 – Room Assignment</title>
+</head>
+<body style="margin:0;padding:0;background-color:#EDEAE4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+               style="max-width:520px;background:#FFFFFF;border-radius:20px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08);">
+
+          <!-- HEADER -->
+          <tr>
+            <td style="background:#0A1628;padding:28px 32px 24px;">
+              <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.28em;text-transform:uppercase;color:#546475;">
+                Built to Last 2026
+              </p>
+              <p style="margin:6px 0 0;font-size:22px;font-weight:800;letter-spacing:0.06em;color:#D4880A;font-family:Georgia,serif;">
+                Room Assignment
+              </p>
+              <p style="margin:4px 0 0;font-size:12px;color:#546475;">
+                Deeper Life Bible Church &middot; Indianapolis, IN
+              </p>
+            </td>
+          </tr>
+
+          <!-- GREETING -->
+          <tr>
+            <td style="padding:32px 32px 8px;">
+              <p style="margin:0 0 10px;font-size:16px;color:#1F2937;font-weight:500;">
+                Hi {{name}},
+              </p>
+              <p style="margin:0;font-size:14px;color:#4B5563;line-height:1.65;">
+                Your room for <strong style="color:#B87408;">Built to Last 2026</strong> has been assigned.
+                Here are your accommodation details.
+              </p>
+            </td>
+          </tr>
+
+          <!-- ROOM DETAIL CARD -->
+          <tr>
+            <td style="padding:24px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+                     style="background:#0A1628;border-radius:16px;border:1px solid rgba(212,136,10,0.3);">
+                <tr>
+                  <td style="padding:24px 24px 8px;">
+                    <p style="margin:0 0 16px;font-size:10px;font-weight:700;letter-spacing:0.26em;text-transform:uppercase;color:#546475;text-align:center;">
+                      Your Room
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 24px 8px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                      <tr>
+                        <td style="padding:6px 0;font-size:12px;color:#546475;width:90px;">Hotel</td>
+                        <td style="padding:6px 0;font-size:13px;font-weight:600;color:#E5E7EB;">{{hotel}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:12px;color:#546475;">Room</td>
+                        <td style="padding:6px 0;font-size:20px;font-weight:800;letter-spacing:0.06em;color:#D4880A;font-family:'Courier New',Courier,monospace;">{{room}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:12px;color:#546475;">Type</td>
+                        <td style="padding:6px 0;font-size:13px;color:#E5E7EB;">{{room_type}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <!-- Roommates section — rendered by backend, empty string when not visible -->
+                {{roommates_section}}
+              </table>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <p style="margin:0 0 16px;font-size:13px;color:#6B7280;">
+                View your full transport schedule, shuttle times, and accommodation:
+              </p>
+              <table cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="border-radius:12px;background:#D4880A;">
+                    <a href="{{status_url}}"
+                       style="display:inline-block;padding:13px 26px;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.03em;">
+                      View my transport &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- DIVIDER -->
+          <tr>
+            <td style="padding:0 32px;">
+              <div style="height:1px;background:#E5E7EB;"></div>
+            </td>
+          </tr>
+
+          <!-- CONFERENCE DETAILS -->
+          <tr>
+            <td style="padding:24px 32px 32px;">
+              <p style="margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B87408;">
+                Conference Details
+              </p>
+              <table cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td style="padding:3px 0;font-size:13px;color:#374151;line-height:1.6;">
+                    &#128197;&nbsp; June 11&ndash;14, 2026
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:3px 0;font-size:13px;color:#374151;line-height:1.6;">
+                    &#128205;&nbsp; Deeper Life Bible Church, 4160 Moller Rd, Indianapolis, IN
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:3px 0;font-size:13px;color:#374151;line-height:1.6;">
+                    &#9992;&#65039;&nbsp; Airport: Indianapolis International (IND)
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background:#F9FAFB;padding:16px 32px;border-top:1px solid #E5E7EB;">
+              <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;">
+                Built to Last 2026 Transport Team
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

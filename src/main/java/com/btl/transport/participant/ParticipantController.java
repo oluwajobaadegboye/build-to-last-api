@@ -7,6 +7,11 @@ import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
+import com.btl.transport.room.AccommodationContact;
+import com.btl.transport.room.AccommodationContactRepository;
+import com.btl.transport.room.RoomAssignment;
+import com.btl.transport.room.RoomOccupant;
+import com.btl.transport.room.RoomOccupantRepository;
 import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SendGridService;
 import com.btl.transport.program.Program;
@@ -29,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -59,6 +65,8 @@ public class ParticipantController {
     private final ProgramRepository programRepository;
     private final SendGridService sendGridService;
     private final NotificationService notificationService;
+    private final RoomOccupantRepository roomOccupantRepository;
+    private final AccommodationContactRepository accommodationContactRepository;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -75,9 +83,13 @@ public class ParticipantController {
     // ── GET /api/v1/hotels ─────────────────────────────────────────────────
     @Operation(summary = "List hotels", description = "Returns all hotels ordered by shuttle stop sequence")
     @GetMapping("/hotels")
-    public ResponseEntity<List<HotelResponse>> getHotels() {
+    public ResponseEntity<List<HotelResponse>> getHotels(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        List<Hotel> hotels = programId != null
+            ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+            : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
         return ResponseEntity.ok(
-            hotelRepository.findAllByOrderByShuttleStopOrderAsc().stream()
+            hotels.stream()
                 .map(h -> new HotelResponse(h.getId(), h.getHotelName(), h.getPickupAddress(), h.getShuttleStopOrder()))
                 .toList()
         );
@@ -136,23 +148,17 @@ public class ParticipantController {
     }
 
     // ── GET /api/v1/accommodation-contacts ───────────────────────────────
-    @Operation(summary = "Get accommodation contacts", description = "Returns accommodation support contacts, optionally scoped to a program")
+    @Operation(summary = "Get accommodation contacts", description = "Returns accommodation support contacts from the accommodation_contacts table, scoped to a program")
     @GetMapping("/accommodation-contacts")
-    public ResponseEntity<AccommodationContactsResponse> accommodationContacts(
+    public ResponseEntity<List<CoordinatorDto>> accommodationContacts(
             @RequestParam(name = "program_id", required = false) String programId) {
-        NotificationConfig cfg = null;
-        if (programId != null) {
-            cfg = notificationConfigRepository.findByProgramId(programId).orElse(null);
-        }
-        if (cfg == null) {
-            cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
-        }
-        if (cfg == null) return ResponseEntity.ok(new AccommodationContactsResponse(null, null));
-
-        return ResponseEntity.ok(new AccommodationContactsResponse(
-            toCoordinatorDto(cfg.getAccommodationName1(), cfg.getAccommodationPhone1(), cfg.getAccommodationWhatsapp1()),
-            toCoordinatorDto(cfg.getAccommodationName2(), cfg.getAccommodationPhone2(), cfg.getAccommodationWhatsapp2())
-        ));
+        if (programId == null) return ResponseEntity.ok(List.of());
+        List<AccommodationContact> contacts =
+            accommodationContactRepository.findByProgramIdOrderBySortOrderAsc(programId);
+        List<CoordinatorDto> result = contacts.stream()
+            .map(c -> toCoordinatorDto(c.getName(), c.getPhone(), c.getWhatsapp()))
+            .toList();
+        return ResponseEntity.ok(result);
     }
 
     // ── POST /api/v1/resend-code ──────────────────────────────────────────
@@ -206,6 +212,7 @@ public class ParticipantController {
     // ── GET /api/v1/participant-status ────────────────────────────────────
     @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their BTL code")
     @GetMapping("/participant-status")
+    @Transactional(readOnly = true)
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByBtlCodeWithHotel(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
@@ -243,12 +250,15 @@ public class ParticipantController {
                 )).orElse(null);
         }
 
+        RoomDto roomDto = buildRoomDto(p, programInfo);
+
         return ResponseEntity.ok(new ParticipantStatusResponse(
             participantDto,
             toFlightDto(arrival),
             toFlightDto(departure),
             runs,
             programInfo,
+            roomDto,
             OffsetDateTime.now().toString()
         ));
     }
@@ -279,6 +289,41 @@ public class ParticipantController {
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
+
+    private RoomDto buildRoomDto(Participant p, ProgramInfoDto programInfo) {
+        RoomOccupant occ = roomOccupantRepository.findFirstByParticipantId(p.getId()).orElse(null);
+        if (occ == null) return null;
+
+        RoomAssignment room = occ.getRoom();
+        if (room.getProgramId() != null && p.getProgramId() != null
+                && !room.getProgramId().equals(p.getProgramId())) return null;
+        int capacity = switch (room.getRoomType() == null ? "" : room.getRoomType()) {
+            case "4-person" -> 4;
+            default -> 2;
+        };
+        long guests = room.getOccupants().stream().filter(o -> o.getName() != null && !o.getName().isBlank()).count();
+
+        // Check roommate visibility from program
+        boolean roommateVisible = true;
+        if (programInfo != null) {
+            Program prog = programRepository.findById(programInfo.id()).orElse(null);
+            if (prog != null && prog.getRoommateVisible() != null) {
+                roommateVisible = prog.getRoommateVisible();
+            }
+        }
+
+        List<RoommateSummary> roommates = null;
+        if (roommateVisible) {
+            roommates = room.getOccupants().stream()
+                .filter(o -> o.getParticipant() == null || !o.getParticipant().getId().equals(p.getId()))
+                .filter(o -> o.getName() != null && !o.getName().isBlank())
+                .map(o -> new RoommateSummary(o.getName(), o.getEmail(), o.getPhone()))
+                .toList();
+        }
+
+        return new RoomDto(room.getRoomLabel(), room.getRoomType(), room.getHotelName(),
+            (int) guests, capacity, roommates);
+    }
 
     private CoordinatorDto toCoordinatorDto(String name, String phone, String whatsapp) {
         if (name == null) return null;

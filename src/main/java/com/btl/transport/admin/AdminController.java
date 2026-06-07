@@ -2,6 +2,12 @@ package com.btl.transport.admin;
 
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramRepository;
+import com.btl.transport.room.AccommodationContact;
+import com.btl.transport.room.AccommodationContactRepository;
+import com.btl.transport.room.RoomAssignment;
+import com.btl.transport.room.RoomAssignmentRepository;
+import com.btl.transport.room.RoomOccupant;
+import com.btl.transport.room.RoomOccupantRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.btl.transport.common.enums.ConferenceDay;
 import com.btl.transport.common.enums.Direction;
@@ -45,8 +51,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -125,6 +135,9 @@ public class AdminController {
     private final AdminUserRepository adminUserRepository;
     private final JwtService jwtService;
     private final StorageService storageService;
+    private final RoomAssignmentRepository roomAssignmentRepository;
+    private final RoomOccupantRepository roomOccupantRepository;
+    private final AccommodationContactRepository accommodationContactRepository;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -1542,6 +1555,445 @@ public class AdminController {
         return "RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
+    // ── Room Assignments ──────────────────────────────────────────────────
+
+    @Operation(summary = "List room assignments", description = "Returns all room assignments with occupants for the program")
+    @GetMapping("/room-assignments")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<AdminDtos.RoomAssignmentDto>> listRoomAssignments(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        if (programId == null) return ResponseEntity.ok(List.of());
+        List<RoomAssignment> rooms = roomAssignmentRepository.findByProgramIdWithOccupants(programId);
+        return ResponseEntity.ok(rooms.stream().map(this::toRoomDto).toList());
+    }
+
+    @Operation(summary = "Create room assignment", description = "Creates a single room assignment for the program")
+    @PostMapping("/room-assignments")
+    @Transactional
+    public ResponseEntity<AdminDtos.RoomAssignmentDto> createRoom(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId,
+            @RequestBody AdminDtos.CreateRoomRequest req) {
+        if (programId == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Program-Id required");
+        Hotel hotel = req.hotelId() != null
+            ? hotelRepository.findById(req.hotelId()).orElse(null) : null;
+        String hotelName = hotel != null ? hotel.getHotelName()
+            : (req.hotelName() != null ? req.hotelName() : "");
+        RoomAssignment room = RoomAssignment.builder()
+            .programId(programId)
+            .hotel(hotel)
+            .hotelName(hotelName)
+            .roomLabel(req.roomLabel() != null ? req.roomLabel() : "")
+            .roomType(req.roomType() != null ? req.roomType() : "2-person")
+            .gender(req.gender())
+            .notes(req.notes())
+            .createdAt(OffsetDateTime.now())
+            .build();
+        room = roomAssignmentRepository.save(room);
+        return ResponseEntity.ok(toRoomDto(room));
+    }
+
+    @Operation(summary = "Import rooms from CSV", description = "Smart-merge CSV import: upserts rooms by (hotel_name, room_label, gender) and moves occupants as needed")
+    @PostMapping(value = "/room-assignments/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Transactional
+    public ResponseEntity<AdminDtos.ImportResultDto> importRoomsCsv(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId,
+            @RequestParam("file") MultipartFile file) {
+        if (programId == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Program-Id required");
+
+        int createdRooms = 0, updatedRooms = 0, movedOccupants = 0, newOccupants = 0;
+        List<AdminDtos.UnmatchedOccupant> unmatched = new ArrayList<>();
+
+        // Format: Name (email, phone)  — phone may contain parentheses like (703) 340-7655
+        // Group 3 uses greedy .* so the regex engine backtracks to the LAST ) in the string
+        Pattern occPattern = Pattern.compile("^(.+?)\\s*\\(([^,)]*),?\\s*(.*)\\)\\s*$");
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+
+            String header = reader.readLine(); // skip header
+            if (header == null) return ResponseEntity.ok(
+                new AdminDtos.ImportResultDto(0, 0, 0, 0, List.of()));
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                // Simple CSV split that handles quoted fields
+                List<String> cols = parseCsvLine(line);
+                if (cols.size() < 4) continue;
+
+                String hotelName  = cols.get(0).trim();
+                String roomLabel  = cols.get(1).trim();
+                String roomType   = cols.get(2).trim();
+                String gender     = cols.get(3).trim();
+                if (hotelName.isEmpty() || roomLabel.isEmpty()) continue;
+
+                // Look up hotel by name
+                Hotel hotel = hotelRepository
+                    .findByProgramIdAndHotelNameIgnoreCase(programId, hotelName)
+                    .orElse(null);
+
+                // Find or create room by composite key (null-safe gender comparison)
+                RoomAssignment room = roomAssignmentRepository
+                    .findByCompositeKey(programId, hotelName, roomLabel, gender.isEmpty() ? null : gender)
+                    .orElse(null);
+
+                if (room == null) {
+                    room = RoomAssignment.builder()
+                        .programId(programId)
+                        .hotel(hotel)
+                        .hotelName(hotelName)
+                        .roomLabel(roomLabel)
+                        .roomType(roomType)
+                        .gender(gender.isEmpty() ? null : gender)
+                        .createdAt(OffsetDateTime.now())
+                        .build();
+                    room = roomAssignmentRepository.save(room);
+                    createdRooms++;
+                } else {
+                    updatedRooms++;
+                }
+
+                // Process occupant slots (cols 4..7)
+                int maxSlots = Math.min(4, cols.size() - 4);
+                for (int i = 0; i < maxSlots; i++) {
+                    String occStr = cols.get(4 + i).trim();
+                    if (occStr.isEmpty()) continue;
+
+                    Matcher m = occPattern.matcher(occStr);
+                    if (!m.matches()) {
+                        unmatched.add(new AdminDtos.UnmatchedOccupant(occStr, null, null));
+                        continue;
+                    }
+                    String name  = m.group(1).trim();
+                    String email = m.group(2).trim();
+                    String phone = m.group(3).trim();
+                    String digits = phone.replaceAll("[^0-9]", "");
+                    if (digits.length() > 10) digits = digits.substring(digits.length() - 10);
+
+                    // Find existing occupant in this program by email, then phone
+                    RoomOccupant existing = null;
+                    if (!email.isEmpty()) {
+                        existing = roomOccupantRepository
+                            .findByProgramIdAndEmailIgnoreCase(programId, email).orElse(null);
+                    }
+                    if (existing == null && !digits.isEmpty()) {
+                        existing = roomOccupantRepository
+                            .findByProgramIdAndPhoneDigits(programId, digits).orElse(null);
+                    }
+
+                    short slot = (short) i;
+
+                    if (existing != null) {
+                        boolean sameRoom = existing.getRoom().getId().equals(room.getId());
+                        boolean sameSlot = existing.getSlot() != null && existing.getSlot() == slot;
+                        if (!sameRoom || !sameSlot) {
+                            // Remove from old slot
+                            roomOccupantRepository.delete(existing);
+                            movedOccupants++;
+                        } else {
+                            // Update details if changed
+                            existing.setName(name);
+                            existing.setEmail(email.isEmpty() ? null : email);
+                            existing.setPhone(phone.isEmpty() ? null : phone);
+                            roomOccupantRepository.save(existing);
+                            continue;
+                        }
+                    }
+
+                    // Check if target slot is occupied — evict if so
+                    roomOccupantRepository.findByRoomIdAndSlot(room.getId(), slot)
+                        .ifPresent(roomOccupantRepository::delete);
+
+                    // Resolve participant link by email
+                    Participant linkedParticipant = null;
+                    if (!email.isEmpty()) {
+                        linkedParticipant = participantRepository
+                            .findByEmailIgnoreCaseAndProgramId(email, programId).orElse(null);
+                    }
+
+                    RoomOccupant occ = RoomOccupant.builder()
+                        .room(room)
+                        .slot(slot)
+                        .participant(linkedParticipant)
+                        .name(name)
+                        .email(email.isEmpty() ? null : email)
+                        .phone(phone.isEmpty() ? null : phone)
+                        .build();
+                    roomOccupantRepository.save(occ);
+                    newOccupants++;
+                }
+            }
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read CSV: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(new AdminDtos.ImportResultDto(
+            createdRooms, updatedRooms, movedOccupants, newOccupants, unmatched));
+    }
+
+    @Operation(summary = "Update room", description = "Updates gender, type, or notes on a room assignment")
+    @PatchMapping("/room-assignments/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.RoomAssignmentDto> updateRoom(
+            @PathVariable Integer id,
+            @RequestBody AdminDtos.UpdateRoomRequest req) {
+        RoomAssignment room = roomAssignmentRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        if (req.gender()   != null) room.setGender(req.gender().isEmpty() ? null : req.gender());
+        if (req.roomType() != null) room.setRoomType(req.roomType());
+        if (req.notes()    != null) room.setNotes(req.notes().isEmpty() ? null : req.notes());
+        room = roomAssignmentRepository.save(room);
+        return ResponseEntity.ok(toRoomDto(room));
+    }
+
+    @Operation(summary = "Delete room", description = "Deletes a room and all its occupants")
+    @DeleteMapping("/room-assignments/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteRoom(@PathVariable Integer id) {
+        roomAssignmentRepository.deleteById(id);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    @Operation(summary = "Add or update occupant in slot", description = "Upserts an occupant at a given slot in a room")
+    @PutMapping("/room-assignments/{id}/occupants/{slot}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> upsertOccupant(
+            @PathVariable Integer id,
+            @PathVariable Short slot,
+            @RequestBody AdminDtos.UpsertOccupantRequest req) {
+        RoomAssignment room = roomAssignmentRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+
+        RoomOccupant occ = roomOccupantRepository.findByRoomIdAndSlot(id, slot)
+            .orElseGet(() -> RoomOccupant.builder().room(room).slot(slot).name("").build());
+
+        if (req.name() != null) occ.setName(req.name());
+        if (req.email() != null) occ.setEmail(req.email().isEmpty() ? null : req.email());
+        if (req.phone() != null) occ.setPhone(req.phone().isEmpty() ? null : req.phone());
+
+        // Try to link participant
+        if (occ.getEmail() != null && room.getProgramId() != null) {
+            participantRepository.findByEmailIgnoreCaseAndProgramId(occ.getEmail(), room.getProgramId())
+                .ifPresent(occ::setParticipant);
+        }
+        roomOccupantRepository.save(occ);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    @Operation(summary = "Remove occupant from slot", description = "Removes an occupant from a specific slot in a room")
+    @DeleteMapping("/room-assignments/{id}/occupants/{slot}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> removeOccupant(
+            @PathVariable Integer id,
+            @PathVariable Short slot) {
+        roomOccupantRepository.findByRoomIdAndSlot(id, slot)
+            .ifPresent(roomOccupantRepository::delete);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    @Operation(summary = "Re-allocate occupant", description = "Moves an occupant from one room/slot to the first available slot in another room")
+    @PutMapping("/room-assignments/realloc")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> reallocOccupant(
+            @RequestBody AdminDtos.ReallocRequest req) {
+        RoomOccupant occ = roomOccupantRepository.findByRoomIdAndSlot(req.fromRoomId(), req.fromSlot().shortValue())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Occupant not found"));
+        RoomAssignment toRoom = roomAssignmentRepository.findById(req.toRoomId())
+            .orElseThrow(() -> new EntityNotFoundException("Target room not found: " + req.toRoomId()));
+
+        int capacity = roomCapacity(toRoom.getRoomType());
+        short targetSlot = -1;
+        for (short s = 0; s < capacity; s++) {
+            if (roomOccupantRepository.findByRoomIdAndSlot(req.toRoomId(), s).isEmpty()) {
+                targetSlot = s;
+                break;
+            }
+        }
+        if (targetSlot < 0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target room is full");
+
+        occ.setRoom(toRoom);
+        occ.setSlot(targetSlot);
+        roomOccupantRepository.save(occ);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    record NotifyResult(@JsonProperty("sent") int sent, @JsonProperty("skipped") int skipped) {}
+
+    private NotifyResult notifyRooms(List<RoomAssignment> rooms, boolean roommateVisible) {
+        int sent = 0, skipped = 0;
+        for (RoomAssignment room : rooms) {
+            List<String> allNames = roommateVisible
+                ? room.getOccupants().stream().map(RoomOccupant::getName).collect(Collectors.toList())
+                : List.of();
+            for (RoomOccupant occ : room.getOccupants()) {
+                if (occ.getParticipant() == null || occ.getParticipant().getEmail() == null) { skipped++; continue; }
+                List<String> others = roommateVisible
+                    ? allNames.stream().filter(n -> !n.equals(occ.getName())).collect(Collectors.toList())
+                    : List.of();
+                notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
+                    room.getRoomLabel(), room.getRoomType(), others);
+                sent++;
+            }
+        }
+        return new NotifyResult(sent, skipped);
+    }
+
+    @Operation(summary = "Notify all participants of room assignments")
+    @PostMapping("/room-assignments/notify")
+    @Transactional(readOnly = true)
+    public ResponseEntity<NotifyResult> notifyAllRoomAssignments(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        if (programId == null) return ResponseEntity.badRequest().build();
+        Program program = programRepository.findById(programId)
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + programId));
+        boolean roommateVisible = program.getRoommateVisible() != null ? program.getRoommateVisible() : true;
+        List<RoomAssignment> rooms = roomAssignmentRepository.findByProgramIdWithOccupants(programId);
+        return ResponseEntity.ok(notifyRooms(rooms, roommateVisible));
+    }
+
+    @Operation(summary = "Notify occupants of a single room")
+    @PostMapping("/room-assignments/{id}/notify")
+    @Transactional(readOnly = true)
+    public ResponseEntity<NotifyResult> notifyOneRoom(
+            @PathVariable Integer id,
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(id)
+            .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        Program program = programRepository.findById(room.getProgramId())
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + room.getProgramId()));
+        boolean roommateVisible = program.getRoommateVisible() != null ? program.getRoommateVisible() : true;
+        return ResponseEntity.ok(notifyRooms(List.of(room), roommateVisible));
+    }
+
+    @Operation(summary = "Toggle roommate visibility", description = "Sets whether participants can see their roommates in their app")
+    @PatchMapping("/programs/{id}/roommate-visible")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> updateRoommateVisible(
+            @PathVariable String id,
+            @RequestBody Map<String, Boolean> body) {
+        Program p = programRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + id));
+        Boolean visible = body.get("roommate_visible");
+        if (visible != null) p.setRoommateVisible(visible);
+        programRepository.save(p);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    // ── Accommodation Contacts ─────────────────────────────────────────────
+
+    @Operation(summary = "List accommodation contacts", description = "Returns accommodation contacts for a program")
+    @GetMapping("/accommodation-contacts")
+    public ResponseEntity<List<AdminDtos.AccommodationContactDto>> listAccomContacts(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        if (programId == null) return ResponseEntity.ok(List.of());
+        return ResponseEntity.ok(
+            accommodationContactRepository.findByProgramIdOrderBySortOrderAsc(programId)
+                .stream().map(this::toAccomContactDto).toList()
+        );
+    }
+
+    @Operation(summary = "Create accommodation contact", description = "Adds a new accommodation contact for the program")
+    @PostMapping("/accommodation-contacts")
+    @Transactional
+    public ResponseEntity<AdminDtos.AccommodationContactDto> createAccomContact(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId,
+            @RequestBody AdminDtos.CreateAccomContactRequest req) {
+        if (programId == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Program-Id required");
+        long nextOrder = accommodationContactRepository.findByProgramIdOrderBySortOrderAsc(programId).size();
+        AccommodationContact contact = AccommodationContact.builder()
+            .programId(programId)
+            .name(req.name())
+            .phone(req.phone())
+            .whatsapp(req.whatsapp())
+            .sortOrder((short) nextOrder)
+            .build();
+        contact = accommodationContactRepository.save(contact);
+        return ResponseEntity.ok(toAccomContactDto(contact));
+    }
+
+    @Operation(summary = "Update accommodation contact", description = "Updates an accommodation contact's name, phone, or WhatsApp")
+    @PatchMapping("/accommodation-contacts/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.AccommodationContactDto> updateAccomContact(
+            @PathVariable Integer id,
+            @RequestBody AdminDtos.UpdateAccomContactRequest req) {
+        AccommodationContact contact = accommodationContactRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Contact not found: " + id));
+        if (req.name()     != null) contact.setName(req.name());
+        if (req.phone()    != null) contact.setPhone(req.phone().isEmpty() ? null : req.phone());
+        if (req.whatsapp() != null) contact.setWhatsapp(req.whatsapp().isEmpty() ? null : req.whatsapp());
+        contact = accommodationContactRepository.save(contact);
+        return ResponseEntity.ok(toAccomContactDto(contact));
+    }
+
+    @Operation(summary = "Delete accommodation contact", description = "Removes an accommodation contact")
+    @DeleteMapping("/accommodation-contacts/{id}")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> deleteAccomContact(@PathVariable Integer id) {
+        accommodationContactRepository.deleteById(id);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    // ── Room helpers ──────────────────────────────────────────────────────
+
+    private AdminDtos.RoomAssignmentDto toRoomDto(RoomAssignment ra) {
+        List<AdminDtos.RoomOccupantDto> occupants = ra.getOccupants() == null ? List.of()
+            : ra.getOccupants().stream().map(o -> new AdminDtos.RoomOccupantDto(
+                o.getSlot() != null ? o.getSlot() : 0,
+                o.getParticipant() != null ? o.getParticipant().getId() : null,
+                o.getName(), o.getEmail(), o.getPhone()
+            )).toList();
+        return new AdminDtos.RoomAssignmentDto(
+            ra.getId(),
+            ra.getHotel() != null ? ra.getHotel().getId() : null,
+            ra.getHotelName(),
+            ra.getRoomLabel(),
+            ra.getRoomType(),
+            ra.getGender(),
+            ra.getNotes(),
+            occupants
+        );
+    }
+
+    private AdminDtos.AccommodationContactDto toAccomContactDto(AccommodationContact c) {
+        return new AdminDtos.AccommodationContactDto(
+            c.getId(), c.getProgramId(), c.getName(), c.getPhone(), c.getWhatsapp(),
+            c.getSortOrder() != null ? c.getSortOrder() : 0
+        );
+    }
+
+    private int roomCapacity(String roomType) {
+        return switch (roomType == null ? "" : roomType) {
+            case "4-person" -> 4;
+            default -> 2;
+        };
+    }
+
+    private List<String> parseCsvLine(String line) {
+        List<String> result = new ArrayList<>();
+        boolean inQuotes = false;
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                result.add(current.toString());
+                current = new StringBuilder();
+            } else {
+                current.append(c);
+            }
+        }
+        result.add(current.toString());
+        return result;
+    }
+
     // ── Programs ──────────────────────────────────────────────────────────
 
     @Operation(summary = "List programs", description = "Returns all programs. If a program-scoped JWT is provided, returns only the token's program")
@@ -1671,6 +2123,7 @@ public class AdminController {
             Map.of("window", orEmpty(p.getRuleWindow()),
                    "cap",    orEmpty(p.getRuleCap()),
                    "buffer", orEmpty(p.getRuleBuffer())),
+            p.getRoommateVisible() != null ? p.getRoommateVisible() : true,
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
     }
