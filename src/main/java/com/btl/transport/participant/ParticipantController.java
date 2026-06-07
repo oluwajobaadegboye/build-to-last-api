@@ -135,6 +135,26 @@ public class ParticipantController {
         ));
     }
 
+    // ── GET /api/v1/accommodation-contacts ───────────────────────────────
+    @Operation(summary = "Get accommodation contacts", description = "Returns accommodation support contacts, optionally scoped to a program")
+    @GetMapping("/accommodation-contacts")
+    public ResponseEntity<AccommodationContactsResponse> accommodationContacts(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        NotificationConfig cfg = null;
+        if (programId != null) {
+            cfg = notificationConfigRepository.findByProgramId(programId).orElse(null);
+        }
+        if (cfg == null) {
+            cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
+        }
+        if (cfg == null) return ResponseEntity.ok(new AccommodationContactsResponse(null, null));
+
+        return ResponseEntity.ok(new AccommodationContactsResponse(
+            toCoordinatorDto(cfg.getAccommodationName1(), cfg.getAccommodationPhone1(), cfg.getAccommodationWhatsapp1()),
+            toCoordinatorDto(cfg.getAccommodationName2(), cfg.getAccommodationPhone2(), cfg.getAccommodationWhatsapp2())
+        ));
+    }
+
     // ── POST /api/v1/resend-code ──────────────────────────────────────────
     @Operation(summary = "Resend registration code", description = "Re-sends the participant's BTL transport code to their registered email address")
     @PostMapping("/resend-code")

@@ -71,4 +71,22 @@ public class NotificationConfig {
 
     @Column(name = "program_id")
     private String programId;
+
+    @Column(name = "accommodation_name_1")
+    private String accommodationName1;
+
+    @Column(name = "accommodation_phone_1")
+    private String accommodationPhone1;
+
+    @Column(name = "accommodation_whatsapp_1")
+    private String accommodationWhatsapp1;
+
+    @Column(name = "accommodation_name_2")
+    private String accommodationName2;
+
+    @Column(name = "accommodation_phone_2")
+    private String accommodationPhone2;
+
+    @Column(name = "accommodation_whatsapp_2")
+    private String accommodationWhatsapp2;
 }

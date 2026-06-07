@@ -29,9 +29,12 @@ public class RunController {
     // ── GET /api/v1/shuttle-status ─────────────────────────────────────────
     @Operation(summary = "Get shuttle status", description = "Returns the full multi-day shuttle schedule, the next upcoming departure, and hotel pickup stop order")
     @GetMapping("/shuttle-status")
-    public ResponseEntity<Map<String, Object>> shuttleStatus() {
+    public ResponseEntity<Map<String, Object>> shuttleStatus(
+            @RequestParam(required = false) String programId) {
         List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
-        List<Run> allRuns = runRepository.findAllWithDetails();
+        List<Run> allRuns = programId != null
+                ? runRepository.findByProgramIdWithDetails(programId)
+                : runRepository.findAllWithDetails();
 
         Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
         for (ConferenceDay day : ConferenceDay.values()) {

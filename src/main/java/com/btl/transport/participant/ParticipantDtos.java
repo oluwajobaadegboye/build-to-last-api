@@ -43,6 +43,12 @@ public final class ParticipantDtos {
         @JsonProperty("coordinator_2") CoordinatorDto coordinator2
     ) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record AccommodationContactsResponse(
+        @JsonProperty("contact_1") CoordinatorDto contact1,
+        @JsonProperty("contact_2") CoordinatorDto contact2
+    ) {}
+
     record RegisterResponse(
         boolean success,
         @JsonProperty("btl_code") String btlCode,

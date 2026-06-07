@@ -137,19 +137,25 @@ public final class AdminDtos {
     ) {}
 
     record NotificationConfigResponse(
-        @JsonProperty("admin_phone_1")        String adminPhone1,
-        @JsonProperty("admin_phone_2")        String adminPhone2,
-        @JsonProperty("coordinator_name_1")   String coordinatorName1,
-        @JsonProperty("coordinator_name_2")   String coordinatorName2,
-        @JsonProperty("whatsapp_link_1")      String whatsappLink1,
-        @JsonProperty("whatsapp_link_2")      String whatsappLink2,
-        @JsonProperty("reminder_before_mins") Integer reminderBeforeMins,
-        @JsonProperty("sms_registration")     String smsRegistration,
-        @JsonProperty("sms_pickup_confirmed") String smsPickupConfirmed,
-        @JsonProperty("sms_shuttle_reminder") String smsShuttleReminder,
-        @JsonProperty("sms_delay_minor")      String smsDelayMinor,
-        @JsonProperty("sms_delay_major")      String smsDelayMajor,
-        @JsonProperty("sms_cancelled")        String smsCancelled
+        @JsonProperty("admin_phone_1")              String adminPhone1,
+        @JsonProperty("admin_phone_2")              String adminPhone2,
+        @JsonProperty("coordinator_name_1")         String coordinatorName1,
+        @JsonProperty("coordinator_name_2")         String coordinatorName2,
+        @JsonProperty("whatsapp_link_1")            String whatsappLink1,
+        @JsonProperty("whatsapp_link_2")            String whatsappLink2,
+        @JsonProperty("reminder_before_mins")       Integer reminderBeforeMins,
+        @JsonProperty("sms_registration")           String smsRegistration,
+        @JsonProperty("sms_pickup_confirmed")       String smsPickupConfirmed,
+        @JsonProperty("sms_shuttle_reminder")       String smsShuttleReminder,
+        @JsonProperty("sms_delay_minor")            String smsDelayMinor,
+        @JsonProperty("sms_delay_major")            String smsDelayMajor,
+        @JsonProperty("sms_cancelled")              String smsCancelled,
+        @JsonProperty("accommodation_name_1")       String accommodationName1,
+        @JsonProperty("accommodation_phone_1")      String accommodationPhone1,
+        @JsonProperty("accommodation_whatsapp_1")   String accommodationWhatsapp1,
+        @JsonProperty("accommodation_name_2")       String accommodationName2,
+        @JsonProperty("accommodation_phone_2")      String accommodationPhone2,
+        @JsonProperty("accommodation_whatsapp_2")   String accommodationWhatsapp2
     ) {}
 
     record SuccessResponse(boolean success) {}
@@ -176,6 +182,7 @@ public final class AdminDtos {
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
+        @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
         @JsonProperty("created_at") String createdAt
     ) {}
@@ -221,6 +228,7 @@ public final class AdminDtos {
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
+        @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules
     ) {}
 }

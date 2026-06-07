@@ -1119,7 +1119,9 @@ public class AdminController {
             c.getReminderBeforeMins(),
             c.getTemplateRegistration(), c.getTemplatePickupReminder(),
             c.getTemplateShuttleReminder(), c.getTemplateDelayMinor(),
-            c.getTemplateDelayMajor(), c.getTemplateCancellation()
+            c.getTemplateDelayMajor(), c.getTemplateCancellation(),
+            c.getAccommodationName1(), c.getAccommodationPhone1(), c.getAccommodationWhatsapp1(),
+            c.getAccommodationName2(), c.getAccommodationPhone2(), c.getAccommodationWhatsapp2()
         ));
     }
 
@@ -1149,7 +1151,13 @@ public class AdminController {
         if (req.smsDelayMinor()      != null) c.setTemplateDelayMinor(req.smsDelayMinor());
         if (req.smsDelayMajor()      != null) c.setTemplateDelayMajor(req.smsDelayMajor());
         if (req.smsCancelled()       != null) c.setTemplateCancellation(req.smsCancelled());
-        if (req.reminderBeforeMins() != null) c.setReminderBeforeMins(req.reminderBeforeMins());
+        if (req.reminderBeforeMins()      != null) c.setReminderBeforeMins(req.reminderBeforeMins());
+        if (req.accommodationName1()      != null) c.setAccommodationName1(req.accommodationName1());
+        if (req.accommodationPhone1()     != null) c.setAccommodationPhone1(req.accommodationPhone1());
+        if (req.accommodationWhatsapp1()  != null) c.setAccommodationWhatsapp1(req.accommodationWhatsapp1());
+        if (req.accommodationName2()      != null) c.setAccommodationName2(req.accommodationName2());
+        if (req.accommodationPhone2()     != null) c.setAccommodationPhone2(req.accommodationPhone2());
+        if (req.accommodationWhatsapp2()  != null) c.setAccommodationWhatsapp2(req.accommodationWhatsapp2());
         notificationConfigRepository.save(c);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -1623,6 +1631,7 @@ public class AdminController {
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
         if (req.eveningRuns() != null) p.setEveningRuns(toJsonString(req.eveningRuns()));
+        if (req.dailySchedules() != null) p.setDailySchedules(toJsonString(req.dailySchedules()));
         if (req.rules()     != null) {
             Map<String, Object> rules = parseRules(rulesJson(req.rules()));
             if (rules != null) {
@@ -1658,6 +1667,7 @@ public class AdminController {
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),
             parseJson(p.getEveningRuns(), List.of()),
+            parseJson(p.getDailySchedules(), null),
             Map.of("window", orEmpty(p.getRuleWindow()),
                    "cap",    orEmpty(p.getRuleCap()),
                    "buffer", orEmpty(p.getRuleBuffer())),

@@ -58,6 +58,10 @@ public class Program {
     @Column(name = "evening_runs", columnDefinition = "jsonb")
     private String eveningRuns;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "daily_schedules", columnDefinition = "jsonb")
+    private String dailySchedules;
+
     @Column(name = "rule_window")
     private String ruleWindow;
 
