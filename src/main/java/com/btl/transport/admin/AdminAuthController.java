@@ -33,7 +33,7 @@ public class AdminAuthController {
         // 1. Try DB-stored admin user (look up by username alone — no program_id required)
         AdminUser dbUser = adminUserRepository.findByUsernameIgnoreCase(body.username()).orElse(null);
         if (dbUser != null && bcrypt.matches(body.password(), dbUser.getPasswordHash())) {
-            String token = jwtService.generateToken(body.username(), dbUser.getProgramId());
+            String token = jwtService.generateToken(body.username(), dbUser.getProgramId(), dbUser.getRole());
             return ResponseEntity.ok(Map.of(
                 "token", token,
                 "expires_at", jwtService.getExpiry(token).toString()

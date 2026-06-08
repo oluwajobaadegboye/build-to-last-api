@@ -1422,7 +1422,8 @@ public class AdminController {
     public record CreateAdminUserRequest(
         String username,
         String password,
-        @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName
+        @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
+        String role
     ) {}
 
     @Operation(summary = "List admin users", description = "Returns all admin users belonging to the program specified in X-Program-Id")
@@ -1437,6 +1438,7 @@ public class AdminController {
                 m.put("username", u.getUsername());
                 m.put("display_name", u.getDisplayName());
                 m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
+                m.put("role", u.getRole());
                 return m;
             }).toList());
     }
@@ -1456,12 +1458,14 @@ public class AdminController {
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
+            .role(req.role() != null ? req.role() : "FULL")
             .build();
         adminUserRepository.save(user);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", user.getId());
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
+        result.put("role", user.getRole());
         return ResponseEntity.ok(result);
     }
 
@@ -1486,7 +1490,8 @@ public class AdminController {
     public record UpdateAdminUserRequest(
         String username,
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
-        @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword
+        @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword,
+        String role
     ) {}
 
     @Operation(summary = "Update admin user", description = "Updates an admin user's username, display name, and/or password")
@@ -1510,6 +1515,9 @@ public class AdminController {
         if (req.newPassword() != null && !req.newPassword().isBlank()) {
             user.setPasswordHash(bcrypt.encode(req.newPassword()));
         }
+        if (req.role() != null && !req.role().isBlank()) {
+            user.setRole(req.role());
+        }
         try {
             adminUserRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
@@ -1521,6 +1529,7 @@ public class AdminController {
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("created_at", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
+        result.put("role", user.getRole());
         return ResponseEntity.ok(result);
     }
 
