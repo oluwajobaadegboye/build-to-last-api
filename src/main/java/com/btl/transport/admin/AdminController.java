@@ -1,5 +1,6 @@
 package com.btl.transport.admin;
 
+import com.btl.transport.common.BtlCodeService;
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.room.AccommodationContact;
@@ -138,6 +139,7 @@ public class AdminController {
     private final RoomAssignmentRepository roomAssignmentRepository;
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
+    private final BtlCodeService btlCodeService;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -1600,6 +1602,7 @@ public class AdminController {
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @RequestParam("file") MultipartFile file) {
         if (programId == null)
+
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Program-Id required");
 
         int createdRooms = 0, updatedRooms = 0, movedOccupants = 0, newOccupants = 0;
@@ -1686,12 +1689,14 @@ public class AdminController {
                     }
 
                     short slot = (short) i;
+                    boolean preservedTicket = false;
 
                     if (existing != null) {
                         boolean sameRoom = existing.getRoom().getId().equals(room.getId());
                         boolean sameSlot = existing.getSlot() != null && existing.getSlot() == slot;
                         if (!sameRoom || !sameSlot) {
-                            // Remove from old slot
+                            // Remove from old slot — preserve ticket_received so it follows the person
+                            preservedTicket = Boolean.TRUE.equals(existing.getTicketReceived());
                             roomOccupantRepository.delete(existing);
                             movedOccupants++;
                         } else {
@@ -1699,6 +1704,16 @@ public class AdminController {
                             existing.setName(name);
                             existing.setEmail(email.isEmpty() ? null : email);
                             existing.setPhone(phone.isEmpty() ? null : phone);
+                            // Re-try participant link if currently null
+                            if (existing.getParticipant() == null && !email.isEmpty()) {
+                                participantRepository.findByEmailIgnoreCaseAndProgramId(email, programId)
+                                    .ifPresent(existing::setParticipant);
+                            }
+                            if (existing.getParticipant() == null && (!email.isEmpty() || !phone.isEmpty())) {
+                                existing.setParticipant(createMinimalParticipant(
+                                    name, email.isEmpty() ? null : email, phone.isEmpty() ? null : phone,
+                                    programId, hotel));
+                            }
                             roomOccupantRepository.save(existing);
                             continue;
                         }
@@ -1707,14 +1722,22 @@ public class AdminController {
                     // Check if target slot is occupied — evict if so
                     roomOccupantRepository.findByRoomIdAndSlot(room.getId(), slot)
                         .ifPresent(roomOccupantRepository::delete);
+                    roomOccupantRepository.flush();
 
-                    // Resolve participant link by email
+                    // Resolve participant link by email; create minimal participant if no match
                     Participant linkedParticipant = null;
                     if (!email.isEmpty()) {
                         linkedParticipant = participantRepository
                             .findByEmailIgnoreCaseAndProgramId(email, programId).orElse(null);
                     }
+                    if (linkedParticipant == null && (!email.isEmpty() || !phone.isEmpty())) {
+                        linkedParticipant = createMinimalParticipant(
+                            name, email.isEmpty() ? null : email, phone.isEmpty() ? null : phone,
+                            programId, hotel);
+                    }
 
+                    boolean ticketReceived = preservedTicket
+                        || (linkedParticipant != null && Boolean.TRUE.equals(linkedParticipant.getTicketReceived()));
                     RoomOccupant occ = RoomOccupant.builder()
                         .room(room)
                         .slot(slot)
@@ -1722,6 +1745,7 @@ public class AdminController {
                         .name(name)
                         .email(email.isEmpty() ? null : email)
                         .phone(phone.isEmpty() ? null : phone)
+                        .ticketReceived(ticketReceived)
                         .build();
                     roomOccupantRepository.save(occ);
                     newOccupants++;
@@ -1780,6 +1804,17 @@ public class AdminController {
             participantRepository.findByEmailIgnoreCaseAndProgramId(occ.getEmail(), room.getProgramId())
                 .ifPresent(occ::setParticipant);
         }
+        // Create minimal participant if still unlinked and we have contact info
+        if (occ.getParticipant() == null && room.getProgramId() != null
+                && (occ.getEmail() != null || occ.getPhone() != null)) {
+            occ.setParticipant(createMinimalParticipant(
+                occ.getName(), occ.getEmail(), occ.getPhone(),
+                room.getProgramId(), room.getHotel()));
+        }
+        // For new occupants, inherit ticket_received from the linked participant
+        if (occ.getId() == null && occ.getParticipant() != null) {
+            occ.setTicketReceived(Boolean.TRUE.equals(occ.getParticipant().getTicketReceived()));
+        }
         roomOccupantRepository.save(occ);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -1792,6 +1827,25 @@ public class AdminController {
             @PathVariable Short slot) {
         roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .ifPresent(roomOccupantRepository::delete);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
+    @Operation(summary = "Toggle ID & ticket received for occupant")
+    @PatchMapping("/room-assignments/{id}/occupants/{slot}/ticket")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> toggleTicket(
+            @PathVariable Integer id,
+            @PathVariable Short slot,
+            @RequestBody AdminDtos.ToggleTicketRequest req) {
+        roomOccupantRepository.findByRoomIdAndSlot(id, slot)
+            .ifPresent(occ -> {
+                occ.setTicketReceived(req.received());
+                roomOccupantRepository.save(occ);
+                if (occ.getParticipant() != null) {
+                    occ.getParticipant().setTicketReceived(req.received());
+                    participantRepository.save(occ.getParticipant());
+                }
+            });
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
@@ -1831,12 +1885,20 @@ public class AdminController {
                 ? room.getOccupants().stream().map(RoomOccupant::getName).collect(Collectors.toList())
                 : List.of();
             for (RoomOccupant occ : room.getOccupants()) {
-                if (occ.getParticipant() == null || occ.getParticipant().getEmail() == null) { skipped++; continue; }
+                String email = occ.getParticipant() != null
+                    ? occ.getParticipant().getEmail()
+                    : occ.getEmail();
+                if (email == null) { skipped++; continue; }
                 List<String> others = roommateVisible
                     ? allNames.stream().filter(n -> !n.equals(occ.getName())).collect(Collectors.toList())
                     : List.of();
-                notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
-                    room.getRoomLabel(), room.getRoomType(), others);
+                if (occ.getParticipant() != null) {
+                    notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
+                        room.getRoomLabel(), room.getRoomType(), others);
+                } else {
+                    notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+                        room.getRoomLabel(), room.getRoomType(), others);
+                }
                 sent++;
             }
         }
@@ -1947,7 +2009,8 @@ public class AdminController {
             : ra.getOccupants().stream().map(o -> new AdminDtos.RoomOccupantDto(
                 o.getSlot() != null ? o.getSlot() : 0,
                 o.getParticipant() != null ? o.getParticipant().getId() : null,
-                o.getName(), o.getEmail(), o.getPhone()
+                o.getName(), o.getEmail(), o.getPhone(),
+                Boolean.TRUE.equals(o.getTicketReceived())
             )).toList();
         return new AdminDtos.RoomAssignmentDto(
             ra.getId(),
@@ -2158,5 +2221,25 @@ public class AdminController {
     public ResponseEntity<Map<String, String>> upload(@RequestParam("file") MultipartFile file) {
         String url = storageService.store(file);
         return ResponseEntity.ok(Map.of("url", url));
+    }
+
+    private Participant createMinimalParticipant(String name, String email, String phone,
+                                                  String programId, Hotel hotel) {
+        Program prog = programRepository.findById(programId).orElse(null);
+        String ini = prog != null ? prog.getIni() : null;
+        Participant p = Participant.builder()
+            .btlCode(btlCodeService.generateNextCode(programId, ini))
+            .fullName(name != null && !name.isEmpty() ? name : "Unknown")
+            .email(email)
+            .phone(phone)
+            .programId(programId)
+            .hotel(hotel)
+            .status(ParticipantStatus.REGISTERED)
+            .needsAttention(false)
+            .shuttleOptIn(false)
+            .createdAt(OffsetDateTime.now())
+            .updatedAt(OffsetDateTime.now())
+            .build();
+        return participantRepository.save(p);
     }
 }

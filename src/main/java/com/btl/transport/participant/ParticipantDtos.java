@@ -132,6 +132,7 @@ public final class ParticipantDtos {
         @JsonProperty("hotel_name") String hotelName,
         int guests,
         int capacity,
+        String gender,
         List<RoommateSummary> roommates
     ) {}
 

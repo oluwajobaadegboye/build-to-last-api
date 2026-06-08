@@ -168,7 +168,8 @@ public final class AdminDtos {
         @JsonProperty("participant_id") Integer participantId,
         String name,
         String email,
-        String phone
+        String phone,
+        @JsonProperty("ticket_received") Boolean ticketReceived
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -222,6 +223,8 @@ public final class AdminDtos {
         String email,
         String phone
     ) {}
+
+    record ToggleTicketRequest(boolean received) {}
 
     record ReallocRequest(
         @JsonProperty("from_room_id") Integer fromRoomId,

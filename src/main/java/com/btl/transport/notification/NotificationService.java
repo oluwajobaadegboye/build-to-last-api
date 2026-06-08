@@ -146,6 +146,37 @@ public class NotificationService {
         }
     }
 
+    public void sendRoomAssignment(String name, String email, String hotelName,
+                                    String roomLabel, String roomType, List<String> roommateNames) {
+        NotificationConfig config = getConfig();
+        String roommatesText = roommateNames.isEmpty() ? "" : String.join(", ", roommateNames);
+        String roommatesSection = roommateNames.isEmpty() ? "" :
+            "<tr><td style=\"padding:8px 24px 20px;\">" +
+            "<div style=\"height:1px;background:rgba(255,255,255,0.08);margin-bottom:12px;\"></div>" +
+            "<p style=\"margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.22em;text-transform:uppercase;color:#546475;\">Roommates</p>" +
+            "<p style=\"margin:0;font-size:13px;color:#CBD5E1;line-height:1.6;\">" + roommatesText + "</p>" +
+            "</td></tr>";
+        Map<String, String> vars = new java.util.HashMap<>();
+        vars.put("name",              name);
+        vars.put("hotel",             hotelName);
+        vars.put("room",              roomLabel);
+        vars.put("room_type",         roomType);
+        vars.put("roommates",         roommatesText);
+        vars.put("roommates_section", roommatesSection);
+        vars.put("status_url",        frontendBaseUrl);
+        vars.put("btl_code",          "");
+        String template = config.getTemplateRoomAssignment();
+        if (template == null) template = "Hi {{name}}, your room at {{hotel}}, {{room}} ({{room_type}}) is confirmed.";
+        String plainBody = renderTemplate(template, vars);
+        String htmlTemplate = loadHtmlTemplate("email-room-assignment.html");
+        if (htmlTemplate != null) {
+            sendGridService.sendHtmlEmail(email, name, "BTL 2026 — Your Room Assignment",
+                renderTemplate(htmlTemplate, vars), plainBody);
+        } else {
+            sendGridService.sendEmail(email, name, "BTL 2026 — Your Room Assignment", plainBody);
+        }
+    }
+
     public void sendShuttleReminders(Run run, NotificationConfig config) {
         // Placeholder — implemented by ReminderJob
         log.info("Shuttle reminder triggered for run {}", run.getRunId());

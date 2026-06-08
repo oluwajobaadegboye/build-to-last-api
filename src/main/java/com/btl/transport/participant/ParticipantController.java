@@ -332,7 +332,7 @@ public class ParticipantController {
         }
 
         return new RoomDto(room.getRoomLabel(), room.getRoomType(), room.getHotelName(),
-            (int) guests, capacity, roommates);
+            (int) guests, capacity, room.getGender(), roommates);
     }
 
     private CoordinatorDto toCoordinatorDto(String name, String phone, String whatsapp) {

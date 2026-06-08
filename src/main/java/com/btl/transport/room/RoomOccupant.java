@@ -33,4 +33,9 @@ public class RoomOccupant {
 
     private String email;
     private String phone;
+
+    @Column(name = "ticket_received", nullable = false)
+    @Builder.Default
+    @com.fasterxml.jackson.annotation.JsonProperty("ticket_received")
+    private Boolean ticketReceived = false;
 }
