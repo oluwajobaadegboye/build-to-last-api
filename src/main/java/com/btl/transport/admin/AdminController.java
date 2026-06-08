@@ -1932,6 +1932,40 @@ public class AdminController {
         return ResponseEntity.ok(notifyRooms(List.of(room), roommateVisible));
     }
 
+    @Operation(summary = "Notify a single occupant of their room assignment")
+    @PostMapping("/room-assignments/{roomId}/occupants/{slot}/notify")
+    @Transactional(readOnly = true)
+    public ResponseEntity<AdminDtos.SuccessResponse> notifyOneOccupant(
+            @PathVariable Integer roomId,
+            @PathVariable Short slot) {
+        RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(roomId)
+            .orElseThrow(() -> new EntityNotFoundException("Room not found: " + roomId));
+        RoomOccupant occ = room.getOccupants().stream()
+            .filter(o -> slot.equals(o.getSlot()))
+            .findFirst()
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Occupant not found at slot " + slot));
+        Program program = programRepository.findById(room.getProgramId())
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + room.getProgramId()));
+        boolean roommateVisible = program.getRoommateVisible() != null ? program.getRoommateVisible() : true;
+        String email = occ.getParticipant() != null ? occ.getParticipant().getEmail() : occ.getEmail();
+        if (email == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Occupant has no email address");
+        List<String> others = roommateVisible
+            ? room.getOccupants().stream()
+                  .map(RoomOccupant::getName)
+                  .filter(n -> !n.equals(occ.getName()))
+                  .collect(Collectors.toList())
+            : List.of();
+        if (occ.getParticipant() != null) {
+            notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
+                room.getRoomLabel(), room.getRoomType(), others);
+        } else {
+            notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+                room.getRoomLabel(), room.getRoomType(), others);
+        }
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     @Operation(summary = "Back-fill missing participant links for room occupants")
     @PostMapping("/room-assignments/backfill-participants")
     @Transactional
