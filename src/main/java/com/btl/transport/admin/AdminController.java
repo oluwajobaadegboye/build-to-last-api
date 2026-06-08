@@ -1932,6 +1932,34 @@ public class AdminController {
         return ResponseEntity.ok(notifyRooms(List.of(room), roommateVisible));
     }
 
+    @Operation(summary = "Back-fill missing participant links for room occupants")
+    @PostMapping("/room-assignments/backfill-participants")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> backfillOccupantParticipants(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        if (programId == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Program-Id required");
+        List<RoomOccupant> unlinked = roomOccupantRepository.findUnlinkedByProgramId(programId);
+        for (RoomOccupant occ : unlinked) {
+            Participant linked = null;
+            if (occ.getEmail() != null) {
+                linked = participantRepository
+                    .findByEmailIgnoreCaseAndProgramId(occ.getEmail(), programId)
+                    .orElse(null);
+            }
+            if (linked == null && (occ.getEmail() != null || occ.getPhone() != null)) {
+                linked = createMinimalParticipant(
+                    occ.getName(), occ.getEmail(), occ.getPhone(),
+                    programId, occ.getRoom().getHotel());
+            }
+            if (linked != null) {
+                occ.setParticipant(linked);
+                roomOccupantRepository.save(occ);
+            }
+        }
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     @Operation(summary = "Toggle roommate visibility", description = "Sets whether participants can see their roommates in their app")
     @PatchMapping("/programs/{id}/roommate-visible")
     @Transactional
