@@ -47,6 +47,7 @@ import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -1423,8 +1424,8 @@ public class AdminController {
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
             + "Built to Last 2026 Transport Team";
         try {
-            org.springframework.core.io.ClassPathResource res =
-                new org.springframework.core.io.ClassPathResource("templates/email-driver-access.html");
+            ClassPathResource res =
+                new ClassPathResource("templates/email-driver-access.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
                 .replace("{{name}}", d.getName())
                 .replace("{{driver_link}}", driverLink);
@@ -1432,6 +1433,34 @@ public class AdminController {
         } catch (IOException e) {
             log.warn("Driver email HTML template not found, falling back to plain text");
             sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", plain);
+        }
+    }
+
+    private void sendAdminWelcomeEmail(AdminUser u, String plainPassword) {
+        String displayName = u.getDisplayName() != null ? u.getDisplayName() : u.getUsername();
+        String roleLabel   = "ACCOMMODATION".equals(u.getRole()) ? "Accommodation Admin" : "Full Access";
+        String loginUrl    = frontendBaseUrl + "/admin/login";
+        String plain = "Hi " + displayName + ",\n\n"
+            + "An admin account has been created for you on the Built to Last 2026 transport system.\n\n"
+            + "Username: " + u.getUsername() + "\n"
+            + "Password: " + plainPassword + "\n"
+            + "Role: " + roleLabel + "\n\n"
+            + "Sign in here: " + loginUrl + "\n\n"
+            + "Please change your password after your first sign-in (available in the sidebar).\n\n"
+            + "Built to Last 2026 Transport Team";
+        try {
+            ClassPathResource res =
+                new ClassPathResource("templates/email-admin-welcome.html");
+            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .replace("{{name}}", displayName)
+                .replace("{{username}}", u.getUsername())
+                .replace("{{password}}", plainPassword)
+                .replace("{{role}}", roleLabel)
+                .replace("{{login_url}}", loginUrl);
+            sendGridService.sendHtmlEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", html, plain);
+        } catch (IOException e) {
+            log.warn("Admin welcome email HTML template not found, falling back to plain text");
+            sendGridService.sendEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", plain);
         }
     }
 
@@ -1477,7 +1506,8 @@ public class AdminController {
         String username,
         String password,
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
-        String role
+        String role,
+        String email
     ) {}
 
     @Operation(summary = "List admin users", description = "Returns all admin users belonging to the program specified in X-Program-Id")
@@ -1493,6 +1523,7 @@ public class AdminController {
                 m.put("display_name", u.getDisplayName());
                 m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
                 m.put("role", u.getRole());
+                m.put("email", u.getEmail());
                 return m;
             }).toList());
     }
@@ -1513,13 +1544,22 @@ public class AdminController {
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
             .role(req.role() != null ? req.role() : "FULL")
+            .email(req.email())
             .build();
         adminUserRepository.save(user);
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            try {
+                sendAdminWelcomeEmail(user, req.password());
+            } catch (Exception e) {
+                log.warn("Failed to send admin welcome email to {}", user.getEmail(), e);
+            }
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", user.getId());
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("role", user.getRole());
+        result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
     }
 
@@ -1545,7 +1585,8 @@ public class AdminController {
         String username,
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
         @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword,
-        String role
+        String role,
+        String email
     ) {}
 
     @Operation(summary = "Update admin user", description = "Updates an admin user's username, display name, and/or password")
@@ -1572,6 +1613,9 @@ public class AdminController {
         if (req.role() != null && !req.role().isBlank()) {
             user.setRole(req.role());
         }
+        if (req.email() != null) {
+            user.setEmail(req.email().isBlank() ? null : req.email().trim());
+        }
         try {
             adminUserRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
@@ -1584,6 +1628,7 @@ public class AdminController {
         result.put("display_name", user.getDisplayName());
         result.put("created_at", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
         result.put("role", user.getRole());
+        result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
     }
 
