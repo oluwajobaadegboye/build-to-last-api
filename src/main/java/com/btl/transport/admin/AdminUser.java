@@ -31,4 +31,8 @@ public class AdminUser {
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
+
+    @Column(name = "role", nullable = false)
+    @Builder.Default
+    private String role = "FULL";
 }

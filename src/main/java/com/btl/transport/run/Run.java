@@ -3,6 +3,7 @@ package com.btl.transport.run;
 import com.btl.transport.common.PostgresEnumType;
 import com.btl.transport.common.enums.*;
 import com.btl.transport.driver.Driver;
+import com.btl.transport.hotel.Hotel;
 import com.btl.transport.vehicle.Vehicle;
 import jakarta.persistence.*;
 import org.hibernate.annotations.Type;
@@ -63,6 +64,10 @@ public class Run {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "driver_id")
     private Driver driver;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "hotel_id")
+    private Hotel hotel;
 
     @Column(name = "pickup_location")
     private String pickupLocation;

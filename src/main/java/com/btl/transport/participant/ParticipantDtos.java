@@ -43,6 +43,12 @@ public final class ParticipantDtos {
         @JsonProperty("coordinator_2") CoordinatorDto coordinator2
     ) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record AccommodationContactsResponse(
+        @JsonProperty("contact_1") CoordinatorDto contact1,
+        @JsonProperty("contact_2") CoordinatorDto contact2
+    ) {}
+
     record RegisterResponse(
         boolean success,
         @JsonProperty("btl_code") String btlCode,
@@ -73,7 +79,9 @@ public final class ParticipantDtos {
         @JsonProperty("needs_attention") boolean needsAttention,
         @JsonProperty("shuttle_opt_in") boolean shuttleOptIn,
         HotelDto hotel,
-        @JsonProperty("program_id") String programId
+        @JsonProperty("program_id") String programId,
+        @JsonProperty("boarded_arrival") boolean boardedArrival,
+        @JsonProperty("boarded_departure") boolean boardedDeparture
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -97,7 +105,8 @@ public final class ParticipantDtos {
         String status,
         @JsonProperty("vehicle_label") String vehicleLabel,
         @JsonProperty("driver_name") String driverName,
-        @JsonProperty("driver_phone") String driverPhone
+        @JsonProperty("driver_phone") String driverPhone,
+        @JsonProperty("pickup_location") String pickupLocation
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -112,12 +121,31 @@ public final class ParticipantDtos {
         @JsonProperty("end_date") String endDate
     ) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoommateSummary(
+        String name,
+        String email,
+        String phone
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomDto(
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        @JsonProperty("hotel_name") String hotelName,
+        int guests,
+        int capacity,
+        String gender,
+        List<RoommateSummary> roommates
+    ) {}
+
     record ParticipantStatusResponse(
         ParticipantDto participant,
         FlightDto arrival,
         FlightDto departure,
         List<RunDto> runs,
         @JsonProperty("program") ProgramInfoDto program,
+        @JsonProperty("room") RoomDto room,
         @JsonProperty("generated_at") String generatedAt
     ) {}
 }

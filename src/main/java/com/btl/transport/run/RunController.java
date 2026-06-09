@@ -29,9 +29,14 @@ public class RunController {
     // ── GET /api/v1/shuttle-status ─────────────────────────────────────────
     @Operation(summary = "Get shuttle status", description = "Returns the full multi-day shuttle schedule, the next upcoming departure, and hotel pickup stop order")
     @GetMapping("/shuttle-status")
-    public ResponseEntity<Map<String, Object>> shuttleStatus() {
-        List<Hotel> hotels = hotelRepository.findAllByOrderByShuttleStopOrderAsc();
-        List<Run> allRuns = runRepository.findAllWithDetails();
+    public ResponseEntity<Map<String, Object>> shuttleStatus(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        List<Hotel> hotels = programId != null
+                ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+                : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
+        List<Run> allRuns = programId != null
+                ? runRepository.findShuttleRunsByProgramIdWithDetails(programId)
+                : runRepository.findAllShuttleRunsWithDetails();
 
         Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
         for (ConferenceDay day : ConferenceDay.values()) {
@@ -117,6 +122,7 @@ public class RunController {
         m.put("seats_left", r.getSeatsRemaining());
         m.put("vehicle_label", r.getVehicle() != null ? r.getVehicle().getLabel() : null);
         m.put("driver_name", r.getDriver() != null ? r.getDriver().getName() : null);
+        m.put("pickup_location", r.getHotel() != null ? r.getHotel().getHotelName() : r.getPickupLocation());
         return m;
     }
 }

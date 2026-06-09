@@ -7,6 +7,11 @@ import com.btl.transport.hotel.Hotel;
 import com.btl.transport.hotel.HotelRepository;
 import com.btl.transport.notification.NotificationConfig;
 import com.btl.transport.notification.NotificationConfigRepository;
+import com.btl.transport.room.AccommodationContact;
+import com.btl.transport.room.AccommodationContactRepository;
+import com.btl.transport.room.RoomAssignment;
+import com.btl.transport.room.RoomOccupant;
+import com.btl.transport.room.RoomOccupantRepository;
 import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SendGridService;
 import com.btl.transport.program.Program;
@@ -14,6 +19,7 @@ import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.btl.transport.run.RunService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -55,10 +62,13 @@ public class ParticipantController {
     private final HotelRepository hotelRepository;
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
+    private final RunService runService;
     private final NotificationConfigRepository notificationConfigRepository;
     private final ProgramRepository programRepository;
     private final SendGridService sendGridService;
     private final NotificationService notificationService;
+    private final RoomOccupantRepository roomOccupantRepository;
+    private final AccommodationContactRepository accommodationContactRepository;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -75,9 +85,13 @@ public class ParticipantController {
     // ── GET /api/v1/hotels ─────────────────────────────────────────────────
     @Operation(summary = "List hotels", description = "Returns all hotels ordered by shuttle stop sequence")
     @GetMapping("/hotels")
-    public ResponseEntity<List<HotelResponse>> getHotels() {
+    public ResponseEntity<List<HotelResponse>> getHotels(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        List<Hotel> hotels = programId != null
+            ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+            : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
         return ResponseEntity.ok(
-            hotelRepository.findAllByOrderByShuttleStopOrderAsc().stream()
+            hotels.stream()
                 .map(h -> new HotelResponse(h.getId(), h.getHotelName(), h.getPickupAddress(), h.getShuttleStopOrder()))
                 .toList()
         );
@@ -135,6 +149,20 @@ public class ParticipantController {
         ));
     }
 
+    // ── GET /api/v1/accommodation-contacts ───────────────────────────────
+    @Operation(summary = "Get accommodation contacts", description = "Returns accommodation support contacts from the accommodation_contacts table, scoped to a program")
+    @GetMapping("/accommodation-contacts")
+    public ResponseEntity<List<CoordinatorDto>> accommodationContacts(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        if (programId == null) return ResponseEntity.ok(List.of());
+        List<AccommodationContact> contacts =
+            accommodationContactRepository.findByProgramIdOrderBySortOrderAsc(programId);
+        List<CoordinatorDto> result = contacts.stream()
+            .map(c -> toCoordinatorDto(c.getName(), c.getPhone(), c.getWhatsapp()))
+            .toList();
+        return ResponseEntity.ok(result);
+    }
+
     // ── POST /api/v1/resend-code ──────────────────────────────────────────
     @Operation(summary = "Resend registration code", description = "Re-sends the participant's BTL transport code to their registered email address")
     @PostMapping("/resend-code")
@@ -186,6 +214,7 @@ public class ParticipantController {
     // ── GET /api/v1/participant-status ────────────────────────────────────
     @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their BTL code")
     @GetMapping("/participant-status")
+    @Transactional(readOnly = true)
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByBtlCodeWithHotel(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
@@ -199,6 +228,11 @@ public class ParticipantController {
             p.getHotel().getPickupAddress() != null ? p.getHotel().getPickupAddress() : ""
         );
 
+        boolean boardedArrival = !runParticipantRepository
+            .findBoardedArrivalParticipantIds(List.of(p.getId()), p.getProgramId()).isEmpty();
+        boolean boardedDeparture = !runParticipantRepository
+            .findBoardedDepartureParticipantIds(List.of(p.getId()), p.getProgramId()).isEmpty();
+
         ParticipantDto participantDto = new ParticipantDto(
             p.getBtlCode(),
             p.getFullName(),
@@ -208,7 +242,9 @@ public class ParticipantController {
             Boolean.TRUE.equals(p.getNeedsAttention()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             hotelDto,
-            p.getProgramId()
+            p.getProgramId(),
+            boardedArrival,
+            boardedDeparture
         );
 
         List<RunDto> runs = getRunsForParticipant(p.getId()).stream().map(this::toRunDto).toList();
@@ -223,12 +259,15 @@ public class ParticipantController {
                 )).orElse(null);
         }
 
+        RoomDto roomDto = buildRoomDto(p, programInfo);
+
         return ResponseEntity.ok(new ParticipantStatusResponse(
             participantDto,
             toFlightDto(arrival),
             toFlightDto(departure),
             runs,
             programInfo,
+            roomDto,
             OffsetDateTime.now().toString()
         ));
     }
@@ -238,6 +277,31 @@ public class ParticipantController {
     @PostMapping("/send-notification")
     public ResponseEntity<NotificationResponse> sendNotification() {
         return ResponseEntity.ok(new NotificationResponse(true, "Notification queued"));
+    }
+
+    public record SelfBoardRequest(
+        @JsonProperty("run_id") String runId,
+        Boolean boarded
+    ) {}
+
+    // ── PATCH /api/v1/participant/{btlCode}/board-run ──────────────────────
+    @Operation(summary = "Self-report boarding", description = "Participant marks themselves as boarded on their active run, identified by BTL code")
+    @PatchMapping("/participant/{btlCode}/board-run")
+    public ResponseEntity<Map<String, Boolean>> selfBoard(
+            @PathVariable String btlCode,
+            @RequestBody SelfBoardRequest req) {
+        Participant p = participantRepository.findByBtlCode(btlCode)
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + btlCode));
+        Run run = runRepository.findByRunId(req.runId())
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
+        List<Integer> runIds = runParticipantRepository.findByIdParticipantId(p.getId())
+            .stream().map(rp -> rp.getId().getRunId()).toList();
+        if (!runIds.contains(run.getId())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN, "Participant is not assigned to this run.");
+        }
+        runService.markBoarded(run.getId(), p.getId(), Boolean.TRUE.equals(req.boarded()));
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     // ── POST /api/v1/twilio-webhook ───────────────────────────────────────
@@ -259,6 +323,51 @@ public class ParticipantController {
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
+
+    private RoomDto buildRoomDto(Participant p, ProgramInfoDto programInfo) {
+        RoomOccupant occ = roomOccupantRepository.findFirstByParticipantId(p.getId()).orElse(null);
+        // Fallback: participants who registered before the CSV was imported won't have participant_id set
+        if (occ == null && p.getEmail() != null && p.getProgramId() != null) {
+            occ = roomOccupantRepository
+                .findByProgramIdAndEmailIgnoreCase(p.getProgramId(), p.getEmail())
+                .orElse(null);
+        }
+        if (occ == null) return null;
+
+        RoomAssignment room = occ.getRoom();
+        if (room.getProgramId() != null && p.getProgramId() != null
+                && !room.getProgramId().equals(p.getProgramId())) return null;
+        int capacity = switch (room.getRoomType() == null ? "" : room.getRoomType()) {
+            case "4-person" -> 4;
+            default -> 2;
+        };
+        long guests = room.getOccupants().stream().filter(o -> o.getName() != null && !o.getName().isBlank()).count();
+
+        // Check roommate visibility from program
+        boolean roommateVisible = true;
+        if (programInfo != null) {
+            Program prog = programRepository.findById(programInfo.id()).orElse(null);
+            if (prog != null && prog.getRoommateVisible() != null) {
+                roommateVisible = prog.getRoommateVisible();
+            }
+        }
+
+        List<RoommateSummary> roommates = null;
+        if (roommateVisible) {
+            roommates = room.getOccupants().stream()
+                .filter(o -> {
+                    if (o.getParticipant() != null) return !o.getParticipant().getId().equals(p.getId());
+                    if (p.getEmail() != null && p.getEmail().equalsIgnoreCase(o.getEmail())) return false;
+                    return true;
+                })
+                .filter(o -> o.getName() != null && !o.getName().isBlank())
+                .map(o -> new RoommateSummary(o.getName(), o.getEmail(), o.getPhone()))
+                .toList();
+        }
+
+        return new RoomDto(room.getRoomLabel(), room.getRoomType(), room.getHotelName(),
+            (int) guests, capacity, room.getGender(), roommates);
+    }
 
     private CoordinatorDto toCoordinatorDto(String name, String phone, String whatsapp) {
         if (name == null) return null;
@@ -292,7 +401,8 @@ public class ParticipantController {
             r.getStatus() != null ? r.getStatus().name().toLowerCase() : null,
             r.getVehicle() != null ? r.getVehicle().getLabel() : null,
             r.getDriver() != null ? r.getDriver().getName() : null,
-            r.getDriver() != null ? r.getDriver().getPhone() : null
+            r.getDriver() != null ? r.getDriver().getPhone() : null,
+            r.getHotel() != null ? r.getHotel().getHotelName() : r.getPickupLocation()
         );
     }
 

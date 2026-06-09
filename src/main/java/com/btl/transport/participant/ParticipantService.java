@@ -15,6 +15,7 @@ import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SheetsWebhookService;
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramRepository;
+import com.btl.transport.room.RoomOccupantRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ public class ParticipantService {
     private final NotificationService notificationService;
     private final SheetsWebhookService sheetsWebhookService;
     private final ProgramRepository programRepository;
+    private final RoomOccupantRepository roomOccupantRepository;
 
 //    @Value("${btl.frontend-base-url}")
 //    private String frontendBaseUrl;
@@ -94,6 +96,19 @@ public class ParticipantService {
             .build();
 
         participant = participantRepository.save(participant);
+
+        // Link to any existing room occupant imported before this participant registered
+        if (email != null && programId != null) {
+            final Participant saved = participant;
+            roomOccupantRepository
+                .findByProgramIdAndEmailIgnoreCase(programId, email)
+                .ifPresent(occ -> {
+                    if (occ.getParticipant() == null) {
+                        occ.setParticipant(saved);
+                        roomOccupantRepository.save(occ);
+                    }
+                });
+        }
 
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
 

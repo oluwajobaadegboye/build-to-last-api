@@ -45,19 +45,21 @@ public final class AdminDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record ParticipantAdminResponse(
-        @JsonProperty("btl_code")         String btlCode,
-        @JsonProperty("full_name")        String fullName,
-        @JsonProperty("phone_whatsapp")   String phoneWhatsapp,
+        @JsonProperty("btl_code")          String btlCode,
+        @JsonProperty("full_name")         String fullName,
+        @JsonProperty("phone_whatsapp")    String phoneWhatsapp,
         String email,
         String state,
         HotelAdminDto hotel,
-        @JsonProperty("shuttle_opt_in")   boolean shuttleOptIn,
+        @JsonProperty("shuttle_opt_in")    boolean shuttleOptIn,
         String status,
-        @JsonProperty("needs_attention")  boolean needsAttention,
-        @JsonProperty("attention_reason") String attentionReason,
-        @JsonProperty("registered_at")    String registeredAt,
-        @JsonProperty("flight_arrival")   FlightAdminDto flightArrival,
-        @JsonProperty("flight_departure") FlightAdminDto flightDeparture
+        @JsonProperty("needs_attention")   boolean needsAttention,
+        @JsonProperty("attention_reason")  String attentionReason,
+        @JsonProperty("registered_at")     String registeredAt,
+        @JsonProperty("flight_arrival")    FlightAdminDto flightArrival,
+        @JsonProperty("flight_departure")  FlightAdminDto flightDeparture,
+        @JsonProperty("boarded_arrival")   boolean boardedArrival,
+        @JsonProperty("boarded_departure") boolean boardedDeparture
     ) {}
 
     record VehicleAdminDto(
@@ -101,7 +103,9 @@ public final class AdminDtos {
         @JsonProperty("manifest_sent")       boolean manifestSent,
         @JsonProperty("completed_at")        String completedAt,
         @JsonProperty("updated_at")          String updatedAt,
-        @JsonProperty("whatsapp_group_link") String whatsappGroupLink
+        @JsonProperty("whatsapp_group_link") String whatsappGroupLink,
+        @JsonProperty("boarded_count")       long boardedCount,
+        @JsonProperty("hotel")               HotelAdminDto hotel
     ) {}
 
     record ManifestResponse(
@@ -137,22 +141,112 @@ public final class AdminDtos {
     ) {}
 
     record NotificationConfigResponse(
-        @JsonProperty("admin_phone_1")        String adminPhone1,
-        @JsonProperty("admin_phone_2")        String adminPhone2,
-        @JsonProperty("coordinator_name_1")   String coordinatorName1,
-        @JsonProperty("coordinator_name_2")   String coordinatorName2,
-        @JsonProperty("whatsapp_link_1")      String whatsappLink1,
-        @JsonProperty("whatsapp_link_2")      String whatsappLink2,
-        @JsonProperty("reminder_before_mins") Integer reminderBeforeMins,
-        @JsonProperty("sms_registration")     String smsRegistration,
-        @JsonProperty("sms_pickup_confirmed") String smsPickupConfirmed,
-        @JsonProperty("sms_shuttle_reminder") String smsShuttleReminder,
-        @JsonProperty("sms_delay_minor")      String smsDelayMinor,
-        @JsonProperty("sms_delay_major")      String smsDelayMajor,
-        @JsonProperty("sms_cancelled")        String smsCancelled
+        @JsonProperty("admin_phone_1")              String adminPhone1,
+        @JsonProperty("admin_phone_2")              String adminPhone2,
+        @JsonProperty("coordinator_name_1")         String coordinatorName1,
+        @JsonProperty("coordinator_name_2")         String coordinatorName2,
+        @JsonProperty("whatsapp_link_1")            String whatsappLink1,
+        @JsonProperty("whatsapp_link_2")            String whatsappLink2,
+        @JsonProperty("reminder_before_mins")       Integer reminderBeforeMins,
+        @JsonProperty("sms_registration")           String smsRegistration,
+        @JsonProperty("sms_pickup_confirmed")       String smsPickupConfirmed,
+        @JsonProperty("sms_shuttle_reminder")       String smsShuttleReminder,
+        @JsonProperty("sms_delay_minor")            String smsDelayMinor,
+        @JsonProperty("sms_delay_major")            String smsDelayMajor,
+        @JsonProperty("sms_cancelled")              String smsCancelled,
+        @JsonProperty("accommodation_name_1")       String accommodationName1,
+        @JsonProperty("accommodation_phone_1")      String accommodationPhone1,
+        @JsonProperty("accommodation_whatsapp_1")   String accommodationWhatsapp1,
+        @JsonProperty("accommodation_name_2")       String accommodationName2,
+        @JsonProperty("accommodation_phone_2")      String accommodationPhone2,
+        @JsonProperty("accommodation_whatsapp_2")   String accommodationWhatsapp2
     ) {}
 
     record SuccessResponse(boolean success) {}
+
+    // ── Room ──────────────────────────────────────────────────────────────
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomOccupantDto(
+        int slot,
+        @JsonProperty("participant_id") Integer participantId,
+        String name,
+        String email,
+        String phone,
+        @JsonProperty("ticket_received") Boolean ticketReceived
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record RoomAssignmentDto(
+        int id,
+        @JsonProperty("hotel_id")   Integer hotelId,
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        String gender,
+        String notes,
+        List<RoomOccupantDto> occupants
+    ) {}
+
+    record AccommodationContactDto(
+        int id,
+        @JsonProperty("program_id") String programId,
+        String name,
+        String phone,
+        String whatsapp,
+        @JsonProperty("sort_order") int sortOrder
+    ) {}
+
+    record ImportResultDto(
+        @JsonProperty("created_rooms")       int createdRooms,
+        @JsonProperty("updated_rooms")       int updatedRooms,
+        @JsonProperty("moved_occupants")     int movedOccupants,
+        @JsonProperty("new_occupants")       int newOccupants,
+        @JsonProperty("unmatched_occupants") List<UnmatchedOccupant> unmatchedOccupants
+    ) {}
+
+    record UnmatchedOccupant(String name, String email, String phone) {}
+
+    record CreateRoomRequest(
+        @JsonProperty("hotel_id")   Integer hotelId,
+        @JsonProperty("hotel_name") String hotelName,
+        @JsonProperty("room_label") String roomLabel,
+        @JsonProperty("room_type")  String roomType,
+        String gender,
+        String notes
+    ) {}
+
+    record UpdateRoomRequest(
+        String gender,
+        @JsonProperty("room_type") String roomType,
+        String notes
+    ) {}
+
+    record UpsertOccupantRequest(
+        String name,
+        String email,
+        String phone
+    ) {}
+
+    record ToggleTicketRequest(boolean received) {}
+
+    record ReallocRequest(
+        @JsonProperty("from_room_id") Integer fromRoomId,
+        @JsonProperty("from_slot")    Integer fromSlot,
+        @JsonProperty("to_room_id")   Integer toRoomId
+    ) {}
+
+    record CreateAccomContactRequest(
+        String name,
+        String phone,
+        String whatsapp
+    ) {}
+
+    record UpdateAccomContactRequest(
+        String name,
+        String phone,
+        String whatsapp
+    ) {}
 
     record ProgramResponse(
         String id,
@@ -176,7 +270,13 @@ public final class AdminDtos {
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
+        @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
+        @JsonProperty("roommate_visible") Boolean roommateVisible,
+        @JsonProperty("show_upload_csv") Boolean showUploadCsv,
+        @JsonProperty("show_download_template") Boolean showDownloadTemplate,
+        @JsonProperty("show_fix_unlinked") Boolean showFixUnlinked,
+        @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
         @JsonProperty("created_at") String createdAt
     ) {}
 
@@ -221,6 +321,7 @@ public final class AdminDtos {
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
+        @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules
     ) {}
 }

@@ -29,21 +29,29 @@ class BtlCodeServiceTest {
     @InjectMocks
     BtlCodeService service;
 
+    // generateNextCode makes two queryForObject calls:
+    //   1. programMax: (sql, Long.class, offset, pattern, programId) — 3 varargs
+    //   2. globalMax:  (sql, Long.class, offset, pattern)            — 2 varargs
+    // Result = Math.max(programMax, globalMax) + 1, so mocks use N-1 / 0 to produce N.
+
     @Test
     void code_format_is_BTL_padded_three_digits() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(42L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(41L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
         assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-042");
     }
 
     @Test
     void code_pads_single_digit() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(1L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(0L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
         assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-001");
     }
 
     @Test
     void code_handles_large_sequence() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(400L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(399L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
         assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-400");
     }
 
@@ -51,6 +59,8 @@ class BtlCodeServiceTest {
     void concurrent_generation_produces_unique_codes() throws InterruptedException {
         AtomicLong counter = new AtomicLong(0);
         when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any()))
+            .thenAnswer(inv -> counter.incrementAndGet());
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any()))
             .thenAnswer(inv -> counter.incrementAndGet());
 
         CopyOnWriteArraySet<String> codes = new CopyOnWriteArraySet<>();

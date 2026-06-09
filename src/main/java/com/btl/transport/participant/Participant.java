@@ -64,4 +64,8 @@ public class Participant {
 
     @Column(name = "state", length = 2)
     private String state;
+
+    @Column(name = "ticket_received")
+    @Builder.Default
+    private Boolean ticketReceived = false;
 }
