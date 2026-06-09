@@ -79,7 +79,9 @@ public final class ParticipantDtos {
         @JsonProperty("needs_attention") boolean needsAttention,
         @JsonProperty("shuttle_opt_in") boolean shuttleOptIn,
         HotelDto hotel,
-        @JsonProperty("program_id") String programId
+        @JsonProperty("program_id") String programId,
+        @JsonProperty("boarded_arrival") boolean boardedArrival,
+        @JsonProperty("boarded_departure") boolean boardedDeparture
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -103,7 +105,8 @@ public final class ParticipantDtos {
         String status,
         @JsonProperty("vehicle_label") String vehicleLabel,
         @JsonProperty("driver_name") String driverName,
-        @JsonProperty("driver_phone") String driverPhone
+        @JsonProperty("driver_phone") String driverPhone,
+        @JsonProperty("pickup_location") String pickupLocation
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -45,19 +45,21 @@ public final class AdminDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record ParticipantAdminResponse(
-        @JsonProperty("btl_code")         String btlCode,
-        @JsonProperty("full_name")        String fullName,
-        @JsonProperty("phone_whatsapp")   String phoneWhatsapp,
+        @JsonProperty("btl_code")          String btlCode,
+        @JsonProperty("full_name")         String fullName,
+        @JsonProperty("phone_whatsapp")    String phoneWhatsapp,
         String email,
         String state,
         HotelAdminDto hotel,
-        @JsonProperty("shuttle_opt_in")   boolean shuttleOptIn,
+        @JsonProperty("shuttle_opt_in")    boolean shuttleOptIn,
         String status,
-        @JsonProperty("needs_attention")  boolean needsAttention,
-        @JsonProperty("attention_reason") String attentionReason,
-        @JsonProperty("registered_at")    String registeredAt,
-        @JsonProperty("flight_arrival")   FlightAdminDto flightArrival,
-        @JsonProperty("flight_departure") FlightAdminDto flightDeparture
+        @JsonProperty("needs_attention")   boolean needsAttention,
+        @JsonProperty("attention_reason")  String attentionReason,
+        @JsonProperty("registered_at")     String registeredAt,
+        @JsonProperty("flight_arrival")    FlightAdminDto flightArrival,
+        @JsonProperty("flight_departure")  FlightAdminDto flightDeparture,
+        @JsonProperty("boarded_arrival")   boolean boardedArrival,
+        @JsonProperty("boarded_departure") boolean boardedDeparture
     ) {}
 
     record VehicleAdminDto(
@@ -101,7 +103,9 @@ public final class AdminDtos {
         @JsonProperty("manifest_sent")       boolean manifestSent,
         @JsonProperty("completed_at")        String completedAt,
         @JsonProperty("updated_at")          String updatedAt,
-        @JsonProperty("whatsapp_group_link") String whatsappGroupLink
+        @JsonProperty("whatsapp_group_link") String whatsappGroupLink,
+        @JsonProperty("boarded_count")       long boardedCount,
+        @JsonProperty("hotel")               HotelAdminDto hotel
     ) {}
 
     record ManifestResponse(
@@ -269,6 +273,10 @@ public final class AdminDtos {
         @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
         @JsonProperty("roommate_visible") Boolean roommateVisible,
+        @JsonProperty("show_upload_csv") Boolean showUploadCsv,
+        @JsonProperty("show_download_template") Boolean showDownloadTemplate,
+        @JsonProperty("show_fix_unlinked") Boolean showFixUnlinked,
+        @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
         @JsonProperty("created_at") String createdAt
     ) {}
 

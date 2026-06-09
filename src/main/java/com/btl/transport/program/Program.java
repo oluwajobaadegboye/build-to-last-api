@@ -98,6 +98,18 @@ public class Program {
     @Column(name = "roommate_visible")
     private Boolean roommateVisible;
 
+    @Column(name = "show_upload_csv")
+    private Boolean showUploadCsv;
+
+    @Column(name = "show_download_template")
+    private Boolean showDownloadTemplate;
+
+    @Column(name = "show_fix_unlinked")
+    private Boolean showFixUnlinked;
+
+    @Column(name = "show_notify_participants")
+    private Boolean showNotifyParticipants;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

@@ -83,8 +83,8 @@ public class AdminController {
     public record AssignVehicleRequest(@JsonProperty("vehicle_id") Integer vehicleId) {}
 
     public record BoardingRequest(
-        @JsonProperty("run_id") Integer runId,
-        @JsonProperty("participant_id") Integer participantId,
+        @JsonProperty("run_id") String runId,
+        @JsonProperty("btl_code") String btlCode,
         Boolean boarded
     ) {}
 
@@ -100,7 +100,8 @@ public class AdminController {
     public record UpdateRunRequest(
         String status,
         @JsonProperty("depart_time") String departTime,
-        @JsonProperty("seats_total") Integer seatsTotal
+        @JsonProperty("seats_total") Integer seatsTotal,
+        @JsonProperty("hotel_id")    Integer hotelId
     ) {}
 
     public record MoveParticipantRequest(
@@ -115,13 +116,15 @@ public class AdminController {
         @JsonProperty("conference_day")  String conferenceDay,
         @JsonProperty("conference_date") String conferenceDate,
         @JsonProperty("depart_time")     String departTime,
-        @JsonProperty("seats_total")     Integer seatsTotal
+        @JsonProperty("seats_total")     Integer seatsTotal,
+        @JsonProperty("hotel_id")        Integer hotelId
     ) {}
 
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
+    private final com.btl.transport.run.RunService runService;
     private final DriverRepository driverRepository;
     private final VehicleRepository vehicleRepository;
     private final ShuttleConfigRepository shuttleConfigRepository;
@@ -216,8 +219,14 @@ public class AdminController {
         Map<Integer, Flight> departures = pageFlights.stream()
             .filter(f -> Direction.TO_AIRPORT.equals(f.getDirection()))
             .collect(Collectors.toMap(f -> f.getParticipant().getId(), f -> f, (a, b) -> a));
+        List<Integer> pageIds = pageItems.stream().map(Participant::getId).toList();
+        Set<Integer> boardedArrivalIds = pageIds.isEmpty() || programId == null ? Set.of()
+            : new HashSet<>(runParticipantRepository.findBoardedArrivalParticipantIds(pageIds, programId));
+        Set<Integer> boardedDepartureIds = pageIds.isEmpty() || programId == null ? Set.of()
+            : new HashSet<>(runParticipantRepository.findBoardedDepartureParticipantIds(pageIds, programId));
         List<AdminDtos.ParticipantAdminResponse> items = pageItems.stream()
-            .map(p -> toParticipantAdminResponse(p, arrivals.get(p.getId()), departures.get(p.getId())))
+            .map(p -> toParticipantAdminResponse(p, arrivals.get(p.getId()), departures.get(p.getId()),
+                boardedArrivalIds.contains(p.getId()), boardedDepartureIds.contains(p.getId())))
             .toList();
 
         return ResponseEntity.ok(Map.of(
@@ -381,15 +390,13 @@ public class AdminController {
     @Operation(summary = "Mark participant boarding status", description = "Records whether a participant has boarded a specific run, stamping the board time when true")
     @PatchMapping("/run-participants/boarded")
     public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
-        RunParticipantId rpId = new RunParticipantId(req.runId(), req.participantId());
-        RunParticipant rp = runParticipantRepository.findById(rpId)
-            .orElse(RunParticipant.builder().id(rpId).build());
+        Run run = runRepository.findByRunId(req.runId())
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
+        Participant participant = participantRepository.findByBtlCode(req.btlCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
         boolean boarded = Boolean.TRUE.equals(req.boarded());
-        rp.setBoarded(boarded);
-        rp.setBoardedAt(boarded ? OffsetDateTime.now() : null);
-        runParticipantRepository.save(rp);
-
-        return ResponseEntity.ok(Map.of("success", true));
+        runService.markBoarded(run.getId(), participant.getId(), boarded);
+        return ResponseEntity.ok(Map.of("success", true, "boarded", boarded));
     }
 
     // ── Drivers ───────────────────────────────────────────────────────────
@@ -636,6 +643,18 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
+    // ── Hotels ─────────────────────────────────────────────────────────────
+
+    @Operation(summary = "List hotels", description = "Returns all hotels for the program, ordered by shuttle stop order")
+    @GetMapping("/hotels")
+    public ResponseEntity<List<AdminDtos.HotelAdminDto>> listHotels(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        List<Hotel> hotels = programId != null
+            ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+            : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
+        return ResponseEntity.ok(hotels.stream().map(this::toHotelDto).toList());
+    }
+
     // ── Run (singular path, string runId) ─────────────────────────────────
 
     @Operation(summary = "Update run", description = "Updates a run's status, departure time, or seat count by string run ID")
@@ -646,10 +665,18 @@ public class AdminController {
             @RequestBody UpdateRunRequest req) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
-        if (req.status()     != null)
-            run.setStatus(RunStatusEnum.valueOf(req.status().toUpperCase()));
+        if (req.status() != null) {
+            RunStatusEnum newStatus = RunStatusEnum.valueOf(req.status().toUpperCase());
+            run.setStatus(newStatus);
+            run.setCompletedAt(newStatus == RunStatusEnum.COMPLETED ? OffsetDateTime.now() : null);
+        }
         if (req.departTime() != null) run.setDepartTime(req.departTime());
         if (req.seatsTotal() != null) run.setSeatsTotal(req.seatsTotal());
+        if (req.hotelId() != null) {
+            Hotel updatedHotel = hotelRepository.findById(req.hotelId()).orElse(null);
+            run.setHotel(updatedHotel);
+            if (updatedHotel != null) run.setPickupLocation(updatedHotel.getHotelName());
+        }
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
         return ResponseEntity.ok(toRunAdminResponse(run, List.of()));
@@ -973,6 +1000,8 @@ public class AdminController {
     public ResponseEntity<AdminDtos.RunAdminResponse> createRun(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @RequestBody CreateRunRequest req) {
+        Hotel runHotel = req.hotelId() != null
+            ? hotelRepository.findById(req.hotelId()).orElse(null) : null;
         Run run = Run.builder()
             .runId(generateAdHocRunId())
             .runType(req.runType() != null
@@ -988,6 +1017,8 @@ public class AdminController {
             .seatsFilled(0)
             .status(RunStatusEnum.SCHEDULED)
             .manifestSent(false)
+            .hotel(runHotel)
+            .pickupLocation(runHotel != null ? runHotel.getHotelName() : null)
             .programId(programId)
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
@@ -1229,12 +1260,19 @@ public class AdminController {
 
         List<RunParticipant> rps = runParticipantRepository.findByIdRunId(r.getId());
         List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
+        Map<Integer, Boolean> boardedByPid = rps.stream().collect(
+            Collectors.toMap(rp -> rp.getId().getParticipantId(),
+                             rp -> Boolean.TRUE.equals(rp.getBoarded()), (a, b) -> a));
         List<Map<String, Object>> participants = pids.isEmpty()
             ? List.of()
             : participantRepository.findAllById(pids).stream()
-                .map(this::participantSummary)
-                .toList();
+                .map(p -> {
+                    Map<String, Object> ps = new LinkedHashMap<>(participantSummary(p));
+                    ps.put("boarded_in_run", boardedByPid.getOrDefault(p.getId(), false));
+                    return ps;
+                }).toList();
         m.put("participants", participants);
+        m.put("boarded_count", r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L);
         return m;
     }
 
@@ -1270,8 +1308,13 @@ public class AdminController {
         List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
         if (pids.isEmpty()) {
             m.put("participants", List.of());
+            m.put("boarded_count", 0L);
             return m;
         }
+
+        Map<Integer, Boolean> boardedByPid = rps.stream().collect(
+            Collectors.toMap(rp -> rp.getId().getParticipantId(),
+                             rp -> Boolean.TRUE.equals(rp.getBoarded()), (a, b) -> a));
 
         List<Participant> participants = participantRepository.findAllById(pids);
         List<Flight> flights = flightRepository.findByParticipantIn(participants);
@@ -1291,10 +1334,12 @@ public class AdminController {
             Flight dep = departureByPid.get(p.getId());
             ps.put("flight_arrival", arr != null ? flightSummary(arr, p.getBtlCode()) : null);
             ps.put("flight_departure", dep != null ? flightSummary(dep, p.getBtlCode()) : null);
+            ps.put("boarded_in_run", boardedByPid.getOrDefault(p.getId(), false));
             return ps;
         }).toList();
 
         m.put("participants", enrichedParticipants);
+        m.put("boarded_count", r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L);
         return m;
     }
 
@@ -1343,6 +1388,11 @@ public class AdminController {
 
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure) {
+        return toParticipantAdminResponse(p, arrival, departure, false, false);
+    }
+
+    private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
+            Participant p, Flight arrival, Flight departure, boolean boardedArrival, boolean boardedDeparture) {
         return new AdminDtos.ParticipantAdminResponse(
             p.getBtlCode(), p.getFullName(), p.getPhone(), p.getEmail(), p.getState(),
             toHotelDto(p.getHotel()),
@@ -1351,7 +1401,9 @@ public class AdminController {
             Boolean.TRUE.equals(p.getNeedsAttention()), p.getAttentionReason(),
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null,
             toFlightDto(arrival, p.getBtlCode()),
-            toFlightDto(departure, p.getBtlCode())
+            toFlightDto(departure, p.getBtlCode()),
+            boardedArrival,
+            boardedDeparture
         );
     }
 
@@ -1413,7 +1465,9 @@ public class AdminController {
             Boolean.TRUE.equals(r.getManifestSent()),
             r.getCompletedAt() != null ? r.getCompletedAt().toString() : null,
             r.getUpdatedAt() != null ? r.getUpdatedAt().toString() : null,
-            r.getWhatsappGroupLink()
+            r.getWhatsappGroupLink(),
+            r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L,
+            r.getHotel() != null ? toHotelDto(r.getHotel()) : null
         );
     }
 
@@ -2017,6 +2071,22 @@ public class AdminController {
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
+    @Operation(summary = "Update room allocation button visibility", description = "Toggles which action buttons are shown on the Room Allocation tab")
+    @PatchMapping("/programs/{id}/room-allocation-settings")
+    @Transactional
+    public ResponseEntity<AdminDtos.SuccessResponse> updateRoomAllocationSettings(
+            @PathVariable String id,
+            @RequestBody Map<String, Boolean> body) {
+        Program p = programRepository.findById(id)
+            .orElseThrow(() -> new EntityNotFoundException("Program not found: " + id));
+        if (body.containsKey("show_upload_csv"))           p.setShowUploadCsv(body.get("show_upload_csv"));
+        if (body.containsKey("show_download_template"))    p.setShowDownloadTemplate(body.get("show_download_template"));
+        if (body.containsKey("show_fix_unlinked"))         p.setShowFixUnlinked(body.get("show_fix_unlinked"));
+        if (body.containsKey("show_notify_participants"))  p.setShowNotifyParticipants(body.get("show_notify_participants"));
+        programRepository.save(p);
+        return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
+    }
+
     // ── Accommodation Contacts ─────────────────────────────────────────────
 
     @Operation(summary = "List accommodation contacts", description = "Returns accommodation contacts for a program")
@@ -2257,7 +2327,11 @@ public class AdminController {
             Map.of("window", orEmpty(p.getRuleWindow()),
                    "cap",    orEmpty(p.getRuleCap()),
                    "buffer", orEmpty(p.getRuleBuffer())),
-            p.getRoommateVisible() != null ? p.getRoommateVisible() : true,
+            p.getRoommateVisible()          != null ? p.getRoommateVisible()          : true,
+            p.getShowUploadCsv()            != null ? p.getShowUploadCsv()            : true,
+            p.getShowDownloadTemplate()     != null ? p.getShowDownloadTemplate()     : true,
+            p.getShowFixUnlinked()          != null ? p.getShowFixUnlinked()          : true,
+            p.getShowNotifyParticipants()   != null ? p.getShowNotifyParticipants()   : true,
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
     }

@@ -19,6 +19,7 @@ import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.btl.transport.run.RunService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,6 +62,7 @@ public class ParticipantController {
     private final HotelRepository hotelRepository;
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
+    private final RunService runService;
     private final NotificationConfigRepository notificationConfigRepository;
     private final ProgramRepository programRepository;
     private final SendGridService sendGridService;
@@ -226,6 +228,11 @@ public class ParticipantController {
             p.getHotel().getPickupAddress() != null ? p.getHotel().getPickupAddress() : ""
         );
 
+        boolean boardedArrival = !runParticipantRepository
+            .findBoardedArrivalParticipantIds(List.of(p.getId()), p.getProgramId()).isEmpty();
+        boolean boardedDeparture = !runParticipantRepository
+            .findBoardedDepartureParticipantIds(List.of(p.getId()), p.getProgramId()).isEmpty();
+
         ParticipantDto participantDto = new ParticipantDto(
             p.getBtlCode(),
             p.getFullName(),
@@ -235,7 +242,9 @@ public class ParticipantController {
             Boolean.TRUE.equals(p.getNeedsAttention()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             hotelDto,
-            p.getProgramId()
+            p.getProgramId(),
+            boardedArrival,
+            boardedDeparture
         );
 
         List<RunDto> runs = getRunsForParticipant(p.getId()).stream().map(this::toRunDto).toList();
@@ -268,6 +277,31 @@ public class ParticipantController {
     @PostMapping("/send-notification")
     public ResponseEntity<NotificationResponse> sendNotification() {
         return ResponseEntity.ok(new NotificationResponse(true, "Notification queued"));
+    }
+
+    public record SelfBoardRequest(
+        @JsonProperty("run_id") String runId,
+        Boolean boarded
+    ) {}
+
+    // ── PATCH /api/v1/participant/{btlCode}/board-run ──────────────────────
+    @Operation(summary = "Self-report boarding", description = "Participant marks themselves as boarded on their active run, identified by BTL code")
+    @PatchMapping("/participant/{btlCode}/board-run")
+    public ResponseEntity<Map<String, Boolean>> selfBoard(
+            @PathVariable String btlCode,
+            @RequestBody SelfBoardRequest req) {
+        Participant p = participantRepository.findByBtlCode(btlCode)
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + btlCode));
+        Run run = runRepository.findByRunId(req.runId())
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
+        List<Integer> runIds = runParticipantRepository.findByIdParticipantId(p.getId())
+            .stream().map(rp -> rp.getId().getRunId()).toList();
+        if (!runIds.contains(run.getId())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN, "Participant is not assigned to this run.");
+        }
+        runService.markBoarded(run.getId(), p.getId(), Boolean.TRUE.equals(req.boarded()));
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     // ── POST /api/v1/twilio-webhook ───────────────────────────────────────
@@ -367,7 +401,8 @@ public class ParticipantController {
             r.getStatus() != null ? r.getStatus().name().toLowerCase() : null,
             r.getVehicle() != null ? r.getVehicle().getLabel() : null,
             r.getDriver() != null ? r.getDriver().getName() : null,
-            r.getDriver() != null ? r.getDriver().getPhone() : null
+            r.getDriver() != null ? r.getDriver().getPhone() : null,
+            r.getHotel() != null ? r.getHotel().getHotelName() : r.getPickupLocation()
         );
     }
 
