@@ -47,6 +47,7 @@ import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -1423,8 +1424,8 @@ public class AdminController {
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
             + "Built to Last 2026 Transport Team";
         try {
-            org.springframework.core.io.ClassPathResource res =
-                new org.springframework.core.io.ClassPathResource("templates/email-driver-access.html");
+            ClassPathResource res =
+                new ClassPathResource("templates/email-driver-access.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
                 .replace("{{name}}", d.getName())
                 .replace("{{driver_link}}", driverLink);
@@ -1448,8 +1449,8 @@ public class AdminController {
             + "Please change your password after your first sign-in (available in the sidebar).\n\n"
             + "Built to Last 2026 Transport Team";
         try {
-            org.springframework.core.io.ClassPathResource res =
-                new org.springframework.core.io.ClassPathResource("templates/email-admin-welcome.html");
+            ClassPathResource res =
+                new ClassPathResource("templates/email-admin-welcome.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
                 .replace("{{name}}", displayName)
                 .replace("{{username}}", u.getUsername())
