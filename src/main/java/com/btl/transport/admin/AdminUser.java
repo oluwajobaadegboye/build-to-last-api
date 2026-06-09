@@ -35,4 +35,7 @@ public class AdminUser {
     @Column(name = "role", nullable = false)
     @Builder.Default
     private String role = "FULL";
+
+    @Column(name = "email")
+    private String email;
 }
