@@ -219,6 +219,7 @@ public final class AdminDtos {
     record UpdateRoomRequest(
         String gender,
         @JsonProperty("room_type") String roomType,
+        @JsonProperty("room_label") String roomLabel,
         String notes
     ) {}
 
