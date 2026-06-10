@@ -32,6 +32,7 @@ import com.btl.transport.notification.SendGridService;
 import com.btl.transport.notification.TwilioService;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
+import com.btl.transport.participant.ParticipantService;
 import com.btl.transport.run.*;
 import com.btl.transport.infrastructure.StorageService;
 import com.btl.transport.vehicle.Vehicle;
@@ -89,6 +90,12 @@ public class AdminController {
         Boolean boarded
     ) {}
 
+    public record UpdateFlightAdminRequest(
+        String airline,
+        @JsonProperty("flight_number") String flightNumber,
+        @JsonProperty("submitted_datetime") String submittedDatetime
+    ) {}
+
     public record UpdateParticipantRequest(
         @JsonProperty("full_name")        String fullName,
         @JsonProperty("phone_whatsapp")   String phone,
@@ -143,6 +150,7 @@ public class AdminController {
     private final RoomAssignmentRepository roomAssignmentRepository;
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
+    private final ParticipantService participantService;
     private final BtlCodeService btlCodeService;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
@@ -589,6 +597,34 @@ public class AdminController {
             .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
         Flight departure = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
+        return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    @Operation(summary = "Update participant flight", description = "Admin override for a participant's arrival or departure flight details")
+    @PatchMapping("/participant/{code}/flight/{direction}")
+    @Transactional
+    public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipantFlight(
+            @PathVariable String code,
+            @PathVariable String direction,
+            @RequestBody UpdateFlightAdminRequest req,
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        Participant p = participantRepository.findByBtlCode(code)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        OffsetDateTime dt = req.submittedDatetime() != null
+            ? OffsetDateTime.parse(req.submittedDatetime()) : null;
+        if (dt == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "submitted_datetime is required");
+        // Preserve existing attention state — admin flight edits should not auto-clear it
+        Boolean prevAttention = p.getNeedsAttention();
+        String prevAttentionReason = p.getAttentionReason();
+        participantService.updateFlight(code, direction, req.airline(), req.flightNumber(), dt);
+        // Restore attention flags that updateFlight clears
+        p = participantRepository.findByBtlCode(code).orElseThrow();
+        p.setNeedsAttention(prevAttention);
+        p.setAttentionReason(prevAttentionReason);
+        participantRepository.save(p);
+        List<Flight> flights = flightRepository.findByParticipant(p);
+        Flight arrival   = flights.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
+        Flight departure = flights.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
