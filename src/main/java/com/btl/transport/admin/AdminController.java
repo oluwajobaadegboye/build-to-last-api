@@ -1878,6 +1878,19 @@ public class AdminController {
         if (req.gender()   != null) room.setGender(req.gender().isEmpty() ? null : req.gender());
         if (req.roomType() != null) room.setRoomType(req.roomType());
         if (req.notes()    != null) room.setNotes(req.notes().isEmpty() ? null : req.notes());
+        if (req.roomLabel() != null && !req.roomLabel().isBlank()
+                && !req.roomLabel().equalsIgnoreCase(room.getRoomLabel())) {
+            final RoomAssignment snapshot = room;
+            final Integer roomId = id;
+            roomAssignmentRepository
+                .findByCompositeKey(snapshot.getProgramId(), snapshot.getHotelName(),
+                                    req.roomLabel(), snapshot.getGender())
+                .filter(existing -> !existing.getId().equals(roomId))
+                .ifPresent(conflict -> { throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Room label \"" + req.roomLabel() + "\" already exists at this hotel" +
+                    (snapshot.getGender() != null ? " (" + snapshot.getGender() + ")" : "") + "."); });
+            room.setRoomLabel(req.roomLabel());
+        }
         room = roomAssignmentRepository.save(room);
         return ResponseEntity.ok(toRoomDto(room));
     }
