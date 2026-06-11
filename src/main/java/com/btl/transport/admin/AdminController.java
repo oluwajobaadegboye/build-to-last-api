@@ -175,7 +175,7 @@ public class AdminController {
             : participantRepository.countByNeedsAttentionTrue();
         long monitored = flightRepository.countByPollingActiveTrue();
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.of("America/New_York"));
         long todayRuns = programId != null
             ? runRepository.countByProgramIdAndConferenceDate(programId, today)
             : runRepository.countByConferenceDate(today);
@@ -331,7 +331,7 @@ public class AdminController {
         @RequestParam(required = false) String day,
         @RequestParam(required = false) String direction
     ) {
-        LocalDate date = day != null ? LocalDate.parse(day) : LocalDate.now();
+        LocalDate date = day != null ? LocalDate.parse(day) : LocalDate.now(ZoneId.of("America/New_York"));
         Direction dir = direction != null ? Direction.valueOf(direction.toUpperCase()) : null;
 
         List<Run> runs;
@@ -549,7 +549,7 @@ public class AdminController {
             ? participantRepository.countByProgramIdAndNeedsAttentionTrue(programId)
             : participantRepository.countByNeedsAttentionTrue();
         long monitored = flightRepository.countByPollingActiveTrue();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.of("America/New_York"));
         long todayRuns = programId != null
             ? runRepository.countByProgramIdAndConferenceDate(programId, today)
             : runRepository.countByConferenceDate(today);
