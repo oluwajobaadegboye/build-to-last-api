@@ -30,6 +30,8 @@ import com.btl.transport.notification.ShuttleConfigRepository;
 import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SendGridService;
 import com.btl.transport.notification.TwilioService;
+import com.btl.transport.common.Leg4CalculatorService;
+import com.btl.transport.common.enums.FlightStatusType;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.*;
@@ -61,7 +63,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -87,6 +92,12 @@ public class AdminController {
         @JsonProperty("run_id") String runId,
         @JsonProperty("btl_code") String btlCode,
         Boolean boarded
+    ) {}
+
+    public record UpdateFlightAdminRequest(
+        String airline,
+        @JsonProperty("flight_number") String flightNumber,
+        @JsonProperty("submitted_datetime") String submittedDatetime
     ) {}
 
     public record UpdateParticipantRequest(
@@ -143,6 +154,7 @@ public class AdminController {
     private final RoomAssignmentRepository roomAssignmentRepository;
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
+    private final Leg4CalculatorService leg4Calculator;
     private final BtlCodeService btlCodeService;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
@@ -590,6 +602,90 @@ public class AdminController {
         Flight departure = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    @Operation(summary = "Update participant flight", description = "Admin override for a participant's arrival or departure flight details")
+    @PatchMapping("/participant/{code}/flight/{direction}")
+    @Transactional
+    public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipantFlight(
+            @PathVariable String code,
+            @PathVariable String direction,
+            @RequestBody UpdateFlightAdminRequest req) {
+        if (!"arrival".equalsIgnoreCase(direction) && !"departure".equalsIgnoreCase(direction))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction must be 'arrival' or 'departure'");
+        if (req.airline() == null || req.airline().isBlank())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "airline is required");
+        if (req.flightNumber() == null || req.flightNumber().isBlank())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "flight_number is required");
+        if (req.submittedDatetime() == null || req.submittedDatetime().isBlank())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "submitted_datetime is required");
+
+        OffsetDateTime dt;
+        try {
+            dt = OffsetDateTime.parse(req.submittedDatetime());
+        } catch (DateTimeParseException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "submitted_datetime must be ISO-8601 with offset, e.g. 2026-07-10T14:30:00Z");
+        }
+
+        Participant p = participantRepository.findByBtlCode(code)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+
+        Direction dir = "departure".equalsIgnoreCase(direction) ? Direction.TO_AIRPORT : Direction.TO_HOTEL;
+
+        Flight flight = flightRepository.findByParticipantAndDirection(p, dir)
+            .orElseGet(() -> Flight.builder()
+                .participant(p)
+                .direction(dir)
+                .airportCode("IND")
+                .flightStatus(FlightStatusType.UNKNOWN)
+                .delayMins(0)
+                .createdAt(OffsetDateTime.now())
+                .build());
+
+        flight.setAirline(req.airline());
+        flight.setFlightNumber(req.flightNumber());
+        flight.setSubmittedDatetime(dt);
+        flight.setUpdatedAt(OffsetDateTime.now());
+
+        if (dir == Direction.TO_HOTEL) {
+            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
+            boolean polling = isWithinPollingWindow(config, dt.toLocalDate());
+            flight.setPollingActive(polling);
+        }
+
+        if (dir == Direction.TO_AIRPORT) {
+            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
+            Program prog = p.getProgramId() != null
+                ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+            ZoneId zone = programZone(prog);
+            LocalTime departTime = dt.atZoneSameInstant(zone).toLocalTime();
+            LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
+            flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, p.getHotel(), defaultCutoff));
+        }
+
+        flightRepository.save(flight);
+        // needs_attention is intentionally NOT cleared — admin edits preserve it
+
+        List<Flight> flights = flightRepository.findByParticipant(p);
+        Flight arrival   = flights.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
+        Flight departure = flights.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
+        return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    private ZoneId programZone(Program program) {
+        if (program != null && program.getTimezone() != null && !program.getTimezone().isBlank()) {
+            try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
+        }
+        return ZoneId.of("America/New_York");
+    }
+
+    private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {
+        if (config == null) return false;
+        LocalDate startDate = config.getPollingStartAsLocalDate();
+        OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
+        if (startDate == null || endDatetime == null) return false;
+        return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
     }
 
     @Operation(summary = "Delete participant", description = "Permanently deletes a participant. If their run becomes empty the run is also deleted; otherwise only their seat is freed.")

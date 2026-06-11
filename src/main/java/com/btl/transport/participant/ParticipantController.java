@@ -1,6 +1,7 @@
 package com.btl.transport.participant;
 
 import com.btl.transport.common.enums.Direction;
+import com.btl.transport.common.enums.RunType;
 import com.btl.transport.flight.Flight;
 import com.btl.transport.flight.FlightRepository;
 import com.btl.transport.hotel.Hotel;
@@ -247,7 +248,19 @@ public class ParticipantController {
             boardedDeparture
         );
 
-        List<RunDto> runs = getRunsForParticipant(p.getId()).stream().map(this::toRunDto).toList();
+        List<Run> participantRuns = getRunsForParticipant(p.getId());
+
+        String arrivalPickupTime = participantRuns.stream()
+            .filter(r -> r.getRunType() == RunType.AIRPORT && r.getDirection() == Direction.TO_HOTEL)
+            .map(Run::getDepartTime)
+            .findFirst().orElse(null);
+
+        String departurePickupTime = participantRuns.stream()
+            .filter(r -> r.getRunType() == RunType.AIRPORT && r.getDirection() == Direction.TO_AIRPORT)
+            .map(Run::getDepartTime)
+            .findFirst().orElse(null);
+
+        List<RunDto> runs = participantRuns.stream().map(this::toRunDto).toList();
 
         ProgramInfoDto programInfo = null;
         if (p.getProgramId() != null) {
@@ -263,8 +276,8 @@ public class ParticipantController {
 
         return ResponseEntity.ok(new ParticipantStatusResponse(
             participantDto,
-            toFlightDto(arrival),
-            toFlightDto(departure),
+            toFlightDto(arrival, arrivalPickupTime),
+            toFlightDto(departure, departurePickupTime),
             runs,
             programInfo,
             roomDto,
@@ -378,7 +391,7 @@ public class ParticipantController {
         );
     }
 
-    private FlightDto toFlightDto(Flight f) {
+    private FlightDto toFlightDto(Flight f, String pickupTime) {
         if (f == null) return null;
         return new FlightDto(
             f.getAirline(),
@@ -388,7 +401,8 @@ public class ParticipantController {
             f.getFlightStatus() != null ? f.getFlightStatus().name().toLowerCase() : "unknown",
             f.getDelayMins() != null ? f.getDelayMins() : 0,
             Boolean.TRUE.equals(f.getPollingActive()),
-            f.getLeg4PickupFrom() != null ? f.getLeg4PickupFrom().name().toLowerCase() : null
+            f.getLeg4PickupFrom() != null ? f.getLeg4PickupFrom().name().toLowerCase() : null,
+            pickupTime
         );
     }
 

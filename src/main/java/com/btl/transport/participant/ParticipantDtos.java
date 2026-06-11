@@ -93,7 +93,8 @@ public final class ParticipantDtos {
         @JsonProperty("flight_status") String flightStatus,
         @JsonProperty("delay_mins") Integer delayMins,
         @JsonProperty("polling_active") boolean pollingActive,
-        @JsonProperty("leg4_pickup_from") String leg4PickupFrom
+        @JsonProperty("leg4_pickup_from") String leg4PickupFrom,
+        @JsonProperty("pickup_time") String pickupTime
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
