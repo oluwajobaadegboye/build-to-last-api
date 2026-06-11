@@ -80,6 +80,7 @@ public class ParticipantService {
                 stub.setShuttleOptIn(shuttleOptIn);
                 stub.setHotel(hotel);
                 stub.setState(state);
+                stub.setStatus(ParticipantStatus.REGISTERED);
                 stub.setNeedsAttention(false);
                 stub.setUpdatedAt(OffsetDateTime.now());
                 participant = participantRepository.save(stub);
