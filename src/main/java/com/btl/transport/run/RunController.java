@@ -122,6 +122,7 @@ public class RunController {
         m.put("seats_left", r.getSeatsRemaining());
         m.put("vehicle_label", r.getVehicle() != null ? r.getVehicle().getLabel() : null);
         m.put("driver_name", r.getDriver() != null ? r.getDriver().getName() : null);
+        m.put("driver_phone", r.getDriver() != null ? r.getDriver().getPhone() : null);
         m.put("pickup_location", r.getHotel() != null ? r.getHotel().getHotelName() : r.getPickupLocation());
         return m;
     }
