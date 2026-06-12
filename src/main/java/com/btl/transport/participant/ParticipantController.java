@@ -245,7 +245,8 @@ public class ParticipantController {
             hotelDto,
             p.getProgramId(),
             boardedArrival,
-            boardedDeparture
+            boardedDeparture,
+            p.getBreakoutGroup()
         );
 
         List<Run> participantRuns = getRunsForParticipant(p.getId());

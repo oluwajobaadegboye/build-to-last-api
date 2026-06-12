@@ -1,0 +1,1 @@
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS breakout_num_groups INT DEFAULT 7;

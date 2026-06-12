@@ -59,7 +59,8 @@ public final class AdminDtos {
         @JsonProperty("flight_arrival")    FlightAdminDto flightArrival,
         @JsonProperty("flight_departure")  FlightAdminDto flightDeparture,
         @JsonProperty("boarded_arrival")   boolean boardedArrival,
-        @JsonProperty("boarded_departure") boolean boardedDeparture
+        @JsonProperty("boarded_departure") boolean boardedDeparture,
+        @JsonProperty("breakout_group")    Integer breakoutGroup
     ) {}
 
     record VehicleAdminDto(
@@ -278,6 +279,7 @@ public final class AdminDtos {
         @JsonProperty("show_download_template") Boolean showDownloadTemplate,
         @JsonProperty("show_fix_unlinked") Boolean showFixUnlinked,
         @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
+        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
         @JsonProperty("created_at") String createdAt
     ) {}
 
@@ -323,6 +325,7 @@ public final class AdminDtos {
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
         @JsonProperty("daily_schedules") Object dailySchedules,
-        Object rules
+        Object rules,
+        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups
     ) {}
 }

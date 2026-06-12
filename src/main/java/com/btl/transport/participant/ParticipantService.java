@@ -61,53 +61,83 @@ public class ParticipantService {
             throw new RegistrationClosedException("Registration for this program is currently paused.");
         }
 
+        Hotel hotel = hotelId != null
+            ? hotelRepository.findById(hotelId).orElse(null)
+            : null;
+
+        Participant participant;
+
         if (programId != null) {
-            // Per-program email uniqueness
-            if (participantRepository.findByEmailIgnoreCaseAndProgramId(email, programId).isPresent()) {
-                throw new AlreadyRegisteredException("You have already registered for this program.");
+            int numGroups = program != null && program.getBreakoutNumGroups() != null ? program.getBreakoutNumGroups() : 0;
+            Participant stub = participantRepository
+                .findByEmailIgnoreCaseAndProgramId(email, programId).orElse(null);
+            if (stub != null) {
+                if (!flightRepository.findByParticipant(stub).isEmpty()) {
+                    throw new AlreadyRegisteredException("You have already registered for this program.");
+                }
+                // Stub was created by CSV room import — complete the registration in-place
+                stub.setFullName(fullName);
+                stub.setPhone(phone);
+                stub.setShuttleOptIn(shuttleOptIn);
+                stub.setHotel(hotel);
+                stub.setState(state);
+                stub.setStatus(ParticipantStatus.REGISTERED);
+                stub.setNeedsAttention(false);
+                stub.setUpdatedAt(OffsetDateTime.now());
+                if (stub.getBreakoutGroup() == null && numGroups > 0) {
+                    stub.setBreakoutGroup(assignNextBreakoutGroup(programId, numGroups));
+                }
+                participant = participantRepository.save(stub);
+            } else {
+                String ini = program != null ? program.getIni() : null;
+                String btlCode = btlCodeService.generateNextCode(programId, ini);
+                participant = participantRepository.save(Participant.builder()
+                    .btlCode(btlCode)
+                    .fullName(fullName)
+                    .email(email)
+                    .phone(phone)
+                    .status(ParticipantStatus.REGISTERED)
+                    .needsAttention(false)
+                    .shuttleOptIn(shuttleOptIn)
+                    .hotel(hotel)
+                    .programId(programId)
+                    .state(state)
+                    .breakoutGroup(numGroups > 0 ? assignNextBreakoutGroup(programId, numGroups) : null)
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build());
+                // Link to any existing room occupant imported before this participant registered
+                final Participant saved = participant;
+                roomOccupantRepository
+                    .findByProgramIdAndEmailIgnoreCase(programId, email)
+                    .ifPresent(occ -> {
+                        if (occ.getParticipant() == null) {
+                            occ.setParticipant(saved);
+                            roomOccupantRepository.save(occ);
+                        }
+                    });
             }
         } else {
             // Legacy global check (no program scope)
             if (participantRepository.existsByEmailIgnoreCase(email)) {
                 throw new IllegalArgumentException("An account with this email address already exists");
             }
-        }
-
-        String ini = program != null ? program.getIni() : null;
-        String btlCode = btlCodeService.generateNextCode(programId != null ? programId : "default", ini);
-
-        Hotel hotel = hotelId != null
-            ? hotelRepository.findById(hotelId).orElse(null)
-            : null;
-
-        Participant participant = Participant.builder()
-            .btlCode(btlCode)
-            .fullName(fullName)
-            .email(email)
-            .phone(phone)
-            .status(ParticipantStatus.REGISTERED)
-            .needsAttention(false)
-            .shuttleOptIn(shuttleOptIn)
-            .hotel(hotel)
-            .programId(programId)
-            .state(state)
-            .createdAt(OffsetDateTime.now())
-            .updatedAt(OffsetDateTime.now())
-            .build();
-
-        participant = participantRepository.save(participant);
-
-        // Link to any existing room occupant imported before this participant registered
-        if (email != null && programId != null) {
-            final Participant saved = participant;
-            roomOccupantRepository
-                .findByProgramIdAndEmailIgnoreCase(programId, email)
-                .ifPresent(occ -> {
-                    if (occ.getParticipant() == null) {
-                        occ.setParticipant(saved);
-                        roomOccupantRepository.save(occ);
-                    }
-                });
+            String ini = program != null ? program.getIni() : null;
+            String btlCode = btlCodeService.generateNextCode("default", ini);
+            participant = participantRepository.save(Participant.builder()
+                .btlCode(btlCode)
+                .fullName(fullName)
+                .email(email)
+                .phone(phone)
+                .status(ParticipantStatus.REGISTERED)
+                .needsAttention(false)
+                .shuttleOptIn(shuttleOptIn)
+                .hotel(hotel)
+                .programId(null)
+                .state(state)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build());
         }
 
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
@@ -157,7 +187,7 @@ public class ParticipantService {
         try {
             notificationService.sendRegistrationConfirmation(participant);
         } catch (Exception e) {
-            log.warn("Notification failed for {} — registration still succeeded: {}", btlCode, e.getMessage());
+            log.warn("Notification failed for {} — registration still succeeded: {}", participant.getBtlCode(), e.getMessage());
         }
 
         sheetsWebhookService.appendRegistration(
@@ -231,5 +261,18 @@ public class ParticipantService {
         OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
         if (startDate == null || endDatetime == null) return false;
         return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
+    }
+
+    private int assignNextBreakoutGroup(String programId, int numGroups) {
+        int minCount = Integer.MAX_VALUE;
+        int minGroup = 1;
+        for (int g = 1; g <= numGroups; g++) {
+            long count = participantRepository.countByBreakoutGroupAndProgramId(g, programId);
+            if (count < minCount) {
+                minCount = (int) count;
+                minGroup = g;
+            }
+        }
+        return minGroup;
     }
 }
