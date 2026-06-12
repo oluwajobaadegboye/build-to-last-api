@@ -110,6 +110,9 @@ public class Program {
     @Column(name = "show_notify_participants")
     private Boolean showNotifyParticipants;
 
+    @Column(name = "show_export_recipients")
+    private Boolean showExportRecipients;
+
     @Column(name = "breakout_num_groups")
     @Builder.Default
     private Integer breakoutNumGroups = 7;
