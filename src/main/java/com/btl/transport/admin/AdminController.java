@@ -106,7 +106,8 @@ public class AdminController {
         String email,
         @JsonProperty("needs_attention")  Boolean needsAttention,
         @JsonProperty("attention_reason") String attentionReason,
-        String notes
+        String notes,
+        @JsonProperty("breakout_group")   Integer breakoutGroup
     ) {}
 
     public record UpdateRunRequest(
@@ -594,6 +595,7 @@ public class AdminController {
         if (req.needsAttention()  != null) p.setNeedsAttention(req.needsAttention());
         if (req.attentionReason() != null) p.setAttentionReason(req.attentionReason());
         if (req.notes()           != null) p.setNotes(req.notes());
+        if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup());
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -602,6 +604,33 @@ public class AdminController {
         Flight departure = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    public record AssignBreakoutGroupsRequest(@JsonProperty("num_groups") int numGroups) {}
+
+    @Operation(summary = "Assign breakout groups", description = "Randomly distributes all participants evenly across the specified number of groups")
+    @PostMapping("/participants/assign-breakout-groups")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> assignBreakoutGroups(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId,
+            @RequestBody AssignBreakoutGroupsRequest req) {
+        if (req.numGroups() < 2)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "num_groups must be at least 2");
+
+        List<Participant> participants = programId != null
+            ? participantRepository.findAllByProgramId(programId)
+            : participantRepository.findAll();
+
+        java.util.Collections.shuffle(participants);
+        for (int i = 0; i < participants.size(); i++) {
+            participants.get(i).setBreakoutGroup((i % req.numGroups()) + 1);
+        }
+        participantRepository.saveAll(participants);
+
+        return ResponseEntity.ok(Map.of(
+            "assigned", participants.size(),
+            "num_groups", req.numGroups()
+        ));
     }
 
     @Operation(summary = "Update participant flight", description = "Admin override for a participant's arrival or departure flight details")
@@ -1500,7 +1529,8 @@ public class AdminController {
             toFlightDto(arrival, p.getBtlCode()),
             toFlightDto(departure, p.getBtlCode()),
             boardedArrival,
-            boardedDeparture
+            boardedDeparture,
+            p.getBreakoutGroup()
         );
     }
 
@@ -2450,6 +2480,7 @@ public class AdminController {
                 p.setRuleBuffer(String.valueOf(rules.getOrDefault("buffer", p.getRuleBuffer())));
             }
         }
+        if (req.breakoutNumGroups() != null) p.setBreakoutNumGroups(req.breakoutNumGroups());
         p.setUpdatedAt(OffsetDateTime.now());
         programRepository.save(p);
         return ResponseEntity.ok(toProgramDto(p));
@@ -2486,6 +2517,7 @@ public class AdminController {
             p.getShowDownloadTemplate()     != null ? p.getShowDownloadTemplate()     : true,
             p.getShowFixUnlinked()          != null ? p.getShowFixUnlinked()          : true,
             p.getShowNotifyParticipants()   != null ? p.getShowNotifyParticipants()   : true,
+            p.getBreakoutNumGroups()        != null ? p.getBreakoutNumGroups()        : 7,
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
     }
@@ -2526,6 +2558,7 @@ public class AdminController {
                                                   String programId, Hotel hotel) {
         Program prog = programRepository.findById(programId).orElse(null);
         String ini = prog != null ? prog.getIni() : null;
+        int numGroups = prog != null && prog.getBreakoutNumGroups() != null ? prog.getBreakoutNumGroups() : 0;
         Participant p = Participant.builder()
             .btlCode(btlCodeService.generateNextCode(programId, ini))
             .fullName(name != null && !name.isEmpty() ? name : "Unknown")
@@ -2536,9 +2569,23 @@ public class AdminController {
             .status(ParticipantStatus.REGISTERED)
             .needsAttention(false)
             .shuttleOptIn(false)
+            .breakoutGroup(numGroups > 0 ? assignNextBreakoutGroup(programId, numGroups) : null)
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();
         return participantRepository.save(p);
+    }
+
+    private int assignNextBreakoutGroup(String programId, int numGroups) {
+        int minCount = Integer.MAX_VALUE;
+        int minGroup = 1;
+        for (int g = 1; g <= numGroups; g++) {
+            long count = participantRepository.countByBreakoutGroupAndProgramId(g, programId);
+            if (count < minCount) {
+                minCount = (int) count;
+                minGroup = g;
+            }
+        }
+        return minGroup;
     }
 }

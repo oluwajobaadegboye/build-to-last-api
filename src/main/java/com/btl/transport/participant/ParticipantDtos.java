@@ -81,7 +81,8 @@ public final class ParticipantDtos {
         HotelDto hotel,
         @JsonProperty("program_id") String programId,
         @JsonProperty("boarded_arrival") boolean boardedArrival,
-        @JsonProperty("boarded_departure") boolean boardedDeparture
+        @JsonProperty("boarded_departure") boolean boardedDeparture,
+        @JsonProperty("breakout_group") Integer breakoutGroup
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

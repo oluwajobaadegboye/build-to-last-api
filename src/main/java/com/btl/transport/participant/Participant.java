@@ -68,4 +68,7 @@ public class Participant {
     @Column(name = "ticket_received")
     @Builder.Default
     private Boolean ticketReceived = false;
+
+    @Column(name = "breakout_group")
+    private Integer breakoutGroup;
 }

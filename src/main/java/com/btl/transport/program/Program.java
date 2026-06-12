@@ -110,6 +110,10 @@ public class Program {
     @Column(name = "show_notify_participants")
     private Boolean showNotifyParticipants;
 
+    @Column(name = "breakout_num_groups")
+    @Builder.Default
+    private Integer breakoutNumGroups = 7;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

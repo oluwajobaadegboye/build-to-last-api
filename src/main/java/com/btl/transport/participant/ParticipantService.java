@@ -68,6 +68,7 @@ public class ParticipantService {
         Participant participant;
 
         if (programId != null) {
+            int numGroups = program != null && program.getBreakoutNumGroups() != null ? program.getBreakoutNumGroups() : 0;
             Participant stub = participantRepository
                 .findByEmailIgnoreCaseAndProgramId(email, programId).orElse(null);
             if (stub != null) {
@@ -83,6 +84,9 @@ public class ParticipantService {
                 stub.setStatus(ParticipantStatus.REGISTERED);
                 stub.setNeedsAttention(false);
                 stub.setUpdatedAt(OffsetDateTime.now());
+                if (stub.getBreakoutGroup() == null && numGroups > 0) {
+                    stub.setBreakoutGroup(assignNextBreakoutGroup(programId, numGroups));
+                }
                 participant = participantRepository.save(stub);
             } else {
                 String ini = program != null ? program.getIni() : null;
@@ -98,6 +102,7 @@ public class ParticipantService {
                     .hotel(hotel)
                     .programId(programId)
                     .state(state)
+                    .breakoutGroup(numGroups > 0 ? assignNextBreakoutGroup(programId, numGroups) : null)
                     .createdAt(OffsetDateTime.now())
                     .updatedAt(OffsetDateTime.now())
                     .build());
@@ -256,5 +261,18 @@ public class ParticipantService {
         OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
         if (startDate == null || endDatetime == null) return false;
         return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
+    }
+
+    private int assignNextBreakoutGroup(String programId, int numGroups) {
+        int minCount = Integer.MAX_VALUE;
+        int minGroup = 1;
+        for (int g = 1; g <= numGroups; g++) {
+            long count = participantRepository.countByBreakoutGroupAndProgramId(g, programId);
+            if (count < minCount) {
+                minCount = (int) count;
+                minGroup = g;
+            }
+        }
+        return minGroup;
     }
 }
