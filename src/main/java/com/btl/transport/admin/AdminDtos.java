@@ -279,6 +279,7 @@ public final class AdminDtos {
         @JsonProperty("show_download_template") Boolean showDownloadTemplate,
         @JsonProperty("show_fix_unlinked") Boolean showFixUnlinked,
         @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
+        @JsonProperty("show_export_recipients") Boolean showExportRecipients,
         @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
         @JsonProperty("created_at") String createdAt
     ) {}

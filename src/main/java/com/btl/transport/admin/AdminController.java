@@ -2272,6 +2272,7 @@ public class AdminController {
         if (body.containsKey("show_download_template"))    p.setShowDownloadTemplate(body.get("show_download_template"));
         if (body.containsKey("show_fix_unlinked"))         p.setShowFixUnlinked(body.get("show_fix_unlinked"));
         if (body.containsKey("show_notify_participants"))  p.setShowNotifyParticipants(body.get("show_notify_participants"));
+        if (body.containsKey("show_export_recipients"))    p.setShowExportRecipients(body.get("show_export_recipients"));
         programRepository.save(p);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2522,6 +2523,7 @@ public class AdminController {
             p.getShowDownloadTemplate()     != null ? p.getShowDownloadTemplate()     : true,
             p.getShowFixUnlinked()          != null ? p.getShowFixUnlinked()          : true,
             p.getShowNotifyParticipants()   != null ? p.getShowNotifyParticipants()   : true,
+            p.getShowExportRecipients()     != null ? p.getShowExportRecipients()     : true,
             p.getBreakoutNumGroups()        != null ? p.getBreakoutNumGroups()        : 7,
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
