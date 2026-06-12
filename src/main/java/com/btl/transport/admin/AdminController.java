@@ -1399,6 +1399,11 @@ public class AdminController {
                 }).toList();
         m.put("participants", participants);
         m.put("boarded_count", r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L);
+        m.put("hotel", r.getHotel() != null ? Map.of(
+            "hotel_id", r.getHotel().getId(),
+            "hotel_name", r.getHotel().getHotelName(),
+            "pickup_address", r.getHotel().getPickupAddress() != null ? r.getHotel().getPickupAddress() : ""
+        ) : null);
         return m;
     }
 
