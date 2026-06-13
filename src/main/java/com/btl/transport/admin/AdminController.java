@@ -941,7 +941,9 @@ public class AdminController {
                     .max(Comparator.naturalOrder())
                     .orElse(group.get(0).getSubmittedDatetime());
 
-                OffsetDateTime departOdt = latestFlight.plusMinutes(30);
+                OffsetDateTime departOdt = direction == Direction.TO_AIRPORT
+                    ? latestFlight.minusMinutes(120)
+                    : latestFlight.plusMinutes(30);
                 String departTime = String.format("%02d:%02d",
                     departOdt.getHour(), departOdt.getMinute());
 
@@ -1009,6 +1011,23 @@ public class AdminController {
         ));
     }
 
+    @PostMapping("/recalculate-departure-times")
+    @Transactional
+    public ResponseEntity<Map<String, Integer>> recalculateDepartureTimes(
+            @RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        List<Run> departureRuns = programId != null
+            ? runRepository.findByProgramIdAndRunTypeOrderByConferenceDateAndDepartTime(programId, RunType.AIRPORT)
+                  .stream().filter(r -> r.getDirection() == Direction.TO_AIRPORT).toList()
+            : runRepository.findAll().stream()
+                  .filter(r -> r.getRunType() == RunType.AIRPORT && r.getDirection() == Direction.TO_AIRPORT).toList();
+
+        for (Run run : departureRuns) {
+            recomputeRunDepartAndLocations(run);
+            runRepository.save(run);
+        }
+        return ResponseEntity.ok(Map.of("departure_runs_updated", departureRuns.size()));
+    }
+
     private void recomputeRunDepartAndLocations(Run run) {
         Direction direction = run.getDirection();
         List<Integer> pids = runParticipantRepository.findByIdRunId(run.getId())
@@ -1021,7 +1040,9 @@ public class AdminController {
             .toList();
         flights.stream().map(Flight::getSubmittedDatetime).max(Comparator.naturalOrder())
             .ifPresent(latest -> {
-                OffsetDateTime d = latest.plusMinutes(30);
+                OffsetDateTime d = direction == Direction.TO_AIRPORT
+                    ? latest.minusMinutes(120)
+                    : latest.plusMinutes(30);
                 run.setDepartTime(String.format("%02d:%02d", d.getHour(), d.getMinute()));
             });
         String hotels = flights.stream()
