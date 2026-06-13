@@ -33,4 +33,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, Intege
     long countByProgramId(String programId);
 
     long countByProgramIdAndNeedsAttentionTrue(String programId);
+
+    List<Participant> findAllByProgramId(String programId);
+
+    long countByBreakoutGroupAndProgramId(Integer breakoutGroup, String programId);
 }

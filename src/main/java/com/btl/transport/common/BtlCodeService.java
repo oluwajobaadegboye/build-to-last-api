@@ -13,15 +13,18 @@ public class BtlCodeService {
     public String generateNextCode(String programId, String programIni) {
         String prefix = derivePrefix(programIni);
         String pattern = "^" + prefix + "-[0-9]+$";
-        Long next = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM ?) AS INTEGER)), 0) + 1" +
+        int offset = prefix.length() + 2;  // skip "PREFIX-"
+        Long programMax = jdbcTemplate.queryForObject(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM ?) AS INTEGER)), 0)" +
             " FROM participants WHERE btl_code ~ ? AND program_id = ?",
-            Long.class,
-            prefix.length() + 2,  // skip "PREFIX-"
-            pattern,
-            programId
+            Long.class, offset, pattern, programId
         );
-        return String.format("%s-%03d", prefix, next);
+        Long globalMax = jdbcTemplate.queryForObject(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM ?) AS INTEGER)), 0)" +
+            " FROM participants WHERE btl_code ~ ?",
+            Long.class, offset, pattern
+        );
+        return String.format("%s-%03d", prefix, Math.max(programMax, globalMax) + 1);
     }
 
     private String derivePrefix(String ini) {
