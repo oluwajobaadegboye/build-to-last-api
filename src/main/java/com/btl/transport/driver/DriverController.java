@@ -14,6 +14,7 @@ import com.btl.transport.run.Run;
 import com.btl.transport.run.RunParticipant;
 import com.btl.transport.run.RunParticipantRepository;
 import com.btl.transport.run.RunRepository;
+import com.btl.transport.run.RunService;
 import com.btl.transport.infrastructure.StorageService;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -42,6 +43,7 @@ public class DriverController {
     private final DriverRepository driverRepository;
     private final RunRepository runRepository;
     private final RunParticipantRepository runParticipantRepository;
+    private final RunService runService;
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
     private final NotificationConfigRepository notificationConfigRepository;
@@ -104,6 +106,11 @@ public class DriverController {
     record UpdateStatusRequest(String status) {}
 
     record UpdateGroupLinkRequest(@JsonProperty("whatsapp_group_link") String whatsappGroupLink) {}
+
+    record BoardPassengerRequest(
+        @JsonProperty("btl_code") String btlCode,
+        Boolean boarded
+    ) {}
 
     // ── Endpoints ─────────────────────────────────────────────────────────────
 
@@ -260,6 +267,26 @@ public class DriverController {
         Map<String, Object> resp = new java.util.LinkedHashMap<>();
         resp.put("whatsapp_group_link", run.getWhatsappGroupLink());
         return ResponseEntity.ok(resp);
+    }
+
+    @Operation(summary = "Mark passenger as boarded", description = "Driver marks a passenger as boarded or un-boarded for a specific run.")
+    @PatchMapping("/run/{runId}/board")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> boardPassenger(
+            @PathVariable String runId,
+            @RequestParam String code,
+            @RequestBody BoardPassengerRequest req) {
+        Driver driver = driverRepository.findByDriverCode(code.toUpperCase())
+            .orElseThrow(() -> new EntityNotFoundException("Invalid driver code."));
+        Run run = runRepository.findByRunId(runId)
+            .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        if (run.getDriver() == null || !run.getDriver().getId().equals(driver.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This run is not assigned to you.");
+        }
+        Participant participant = participantRepository.findByBtlCode(req.btlCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        runService.markBoarded(run.getId(), participant.getId(), Boolean.TRUE.equals(req.boarded()));
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

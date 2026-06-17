@@ -6,7 +6,7 @@ import com.btl.transport.common.enums.RunStatusEnum;
 import com.btl.transport.common.enums.RunType;
 import com.btl.transport.notification.ShuttleConfig;
 import com.btl.transport.notification.ShuttleConfigRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -66,8 +66,7 @@ public class RunService {
     }
 
     private String generateRunId() {
-        long count = runRepository.count() + 1;
-        return String.format("RUN-%03d", count);
+        return "RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     }
 
     public List<Run> getRunsForDate(LocalDate date) {
@@ -79,12 +78,7 @@ public class RunService {
     }
 
     @Transactional
-    public RunParticipant markBoarded(Integer runId, Integer participantId, boolean boarded) {
-        RunParticipantId id = new RunParticipantId(runId, participantId);
-        RunParticipant rp = runParticipantRepository.findById(id)
-            .orElse(RunParticipant.builder().id(id).build());
-        rp.setBoarded(boarded);
-        rp.setBoardedAt(boarded ? OffsetDateTime.now() : null);
-        return runParticipantRepository.save(rp);
+    public void markBoarded(Integer runId, Integer participantId, boolean boarded) {
+        runParticipantRepository.setBoarded(runId, participantId, boarded, boarded ? OffsetDateTime.now() : null);
     }
 }

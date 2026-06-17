@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Your Driver App Access</title>
+  <title>Your Admin Access</title>
 </head>
 <body style="margin:0;padding:0;background-color:#EDEAE4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
 
@@ -21,10 +21,10 @@
                 Built to Last 2026
               </p>
               <p style="margin:6px 0 0;font-size:22px;font-weight:800;letter-spacing:0.06em;color:#D4880A;font-family:Georgia,serif;">
-                Driver Access
+                Admin Access
               </p>
               <p style="margin:4px 0 0;font-size:12px;color:#546475;">
-                Transport Coordination &middot; Volunteer Driver
+                Transport Coordination &middot; {{role}}
               </p>
             </td>
           </tr>
@@ -36,25 +36,52 @@
                 Hi {{name}},
               </p>
               <p style="margin:0;font-size:14px;color:#4B5563;line-height:1.65;">
-                You&rsquo;ve been added as a volunteer driver for
-                <strong style="color:#B87408;">Built to Last 2026</strong>.
-                Use the button below to open your driver app and view your assigned runs.
+                An admin account has been created for you on the
+                <strong style="color:#B87408;">Built to Last 2026</strong> transport system.
+                Use the credentials below to sign in.
               </p>
+            </td>
+          </tr>
+
+          <!-- CREDENTIALS -->
+          <tr>
+            <td style="padding:20px 32px 8px;">
+              <table cellpadding="0" cellspacing="0" role="presentation" width="100%"
+                     style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;">
+                <tr>
+                  <td style="padding:12px 18px;border-bottom:1px solid #E5E7EB;">
+                    <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#9CA3AF;">Username</span><br/>
+                    <span style="font-size:15px;font-weight:600;color:#111827;font-family:monospace;">{{username}}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 18px;border-bottom:1px solid #E5E7EB;">
+                    <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#9CA3AF;">Password</span><br/>
+                    <span style="font-size:15px;font-weight:600;color:#111827;font-family:monospace;">{{password}}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 18px;">
+                    <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#9CA3AF;">Role</span><br/>
+                    <span style="font-size:14px;font-weight:600;color:#111827;">{{role}}</span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
           <!-- CTA BUTTON -->
           <tr>
-            <td style="padding:28px 32px 20px;">
+            <td style="padding:24px 32px 20px;">
               <table cellpadding="0" cellspacing="0" role="presentation" width="100%">
                 <tr>
                   <td align="center">
                     <table cellpadding="0" cellspacing="0" role="presentation">
                       <tr>
                         <td>
-                          <a href="{{driver_link}}"
+                          <a href="{{login_url}}"
                              style="display:inline-block;padding:15px 36px;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.04em;background:#D4880A;border-radius:14px;box-shadow:0 4px 14px rgba(212,136,10,0.35);">
-                            Open Driver App &rarr;
+                            Sign In &rarr;
                           </a>
                         </td>
                       </tr>
@@ -81,17 +108,17 @@
               <table cellpadding="0" cellspacing="0" role="presentation" width="100%">
                 <tr>
                   <td style="padding:5px 0;font-size:13px;color:#374151;line-height:1.65;">
-                    &#128278;&nbsp; <strong>Bookmark this link</strong> — it&rsquo;s your personal access to the driver app.
+                    &#128274;&nbsp; <strong>Change your password</strong> after signing in &mdash; it&rsquo;s available in the sidebar.
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:5px 0;font-size:13px;color:#374151;line-height:1.65;">
-                    &#128274;&nbsp; This link is unique to you — please <strong>do not share it</strong> with others.
+                    &#128100;&nbsp; Your account is scoped to the active program only.
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:5px 0;font-size:13px;color:#374151;line-height:1.65;">
-                    &#128222;&nbsp; Your coordinator can resend this link at any time if needed.
+                    &#128222;&nbsp; Contact your coordinator if you have any trouble signing in.
                   </td>
                 </tr>
               </table>
@@ -102,7 +129,7 @@
           <tr>
             <td style="background:#F9FAFB;padding:16px 32px;border-top:1px solid #E5E7EB;">
               <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;">
-                Built to Last 2026 Transport Team &mdash; For coordinators and drivers only
+                Built to Last 2026 Transport Team &mdash; Admin portal access
               </p>
             </td>
           </tr>

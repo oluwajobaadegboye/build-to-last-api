@@ -22,10 +22,10 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
 
     List<Run> findByConferenceDateAndDirectionOrderByDepartTimeAsc(LocalDate date, Direction direction);
 
-    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.conferenceDate = :date ORDER BY r.departTime ASC")
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.conferenceDate = :date ORDER BY r.departTime ASC")
     List<Run> findByConferenceDateWithDetailsOrderByDepartTimeAsc(@Param("date") LocalDate date);
 
-    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.conferenceDate = :date AND r.direction = :direction ORDER BY r.departTime ASC")
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.conferenceDate = :date AND r.direction = :direction ORDER BY r.departTime ASC")
     List<Run> findByConferenceDateAndDirectionWithDetailsOrderByDepartTimeAsc(@Param("date") LocalDate date, @Param("direction") Direction direction);
 
     List<Run> findByConferenceDayAndDirection(ConferenceDay day, Direction direction);
@@ -44,11 +44,20 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
 
     Optional<Run> findByRunId(String runId);
 
-    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.id IN :ids")
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.id IN :ids")
     List<Run> findAllByIdWithDetails(@Param("ids") List<Integer> ids);
 
     @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver")
     List<Run> findAllWithDetails();
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId")
+    List<Run> findByProgramIdWithDetails(@Param("programId") String programId);
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.runType = com.btl.transport.common.enums.RunType.SHUTTLE")
+    List<Run> findAllShuttleRunsWithDetails();
+
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.programId = :programId AND r.runType = com.btl.transport.common.enums.RunType.SHUTTLE")
+    List<Run> findShuttleRunsByProgramIdWithDetails(@Param("programId") String programId);
 
     List<Run> findByDriverIdOrderByConferenceDateAscDepartTimeAsc(Integer driverId);
 
@@ -56,10 +65,10 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
     @Query("UPDATE Run r SET r.driver = null WHERE r.driver.id = :driverId")
     void clearDriverFromRuns(@Param("driverId") Integer driverId);
 
-    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId AND r.conferenceDate = :date ORDER BY r.departTime ASC")
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.programId = :programId AND r.conferenceDate = :date ORDER BY r.departTime ASC")
     List<Run> findByProgramIdAndConferenceDateWithDetailsOrderByDepartTimeAsc(@Param("programId") String programId, @Param("date") LocalDate date);
 
-    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver WHERE r.programId = :programId AND r.conferenceDate = :date AND r.direction = :direction ORDER BY r.departTime ASC")
+    @Query("SELECT r FROM Run r LEFT JOIN FETCH r.vehicle LEFT JOIN FETCH r.driver LEFT JOIN FETCH r.hotel WHERE r.programId = :programId AND r.conferenceDate = :date AND r.direction = :direction ORDER BY r.departTime ASC")
     List<Run> findByProgramIdAndConferenceDateAndDirectionWithDetails(@Param("programId") String programId, @Param("date") LocalDate date, @Param("direction") Direction direction);
 
     long countByProgramIdAndConferenceDate(String programId, LocalDate date);

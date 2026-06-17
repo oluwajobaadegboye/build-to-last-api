@@ -58,6 +58,10 @@ public class Program {
     @Column(name = "evening_runs", columnDefinition = "jsonb")
     private String eveningRuns;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "daily_schedules", columnDefinition = "jsonb")
+    private String dailySchedules;
+
     @Column(name = "rule_window")
     private String ruleWindow;
 
@@ -90,6 +94,28 @@ public class Program {
 
     @Column(name = "timezone")
     private String timezone;
+
+    @Column(name = "roommate_visible")
+    private Boolean roommateVisible;
+
+    @Column(name = "show_upload_csv")
+    private Boolean showUploadCsv;
+
+    @Column(name = "show_download_template")
+    private Boolean showDownloadTemplate;
+
+    @Column(name = "show_fix_unlinked")
+    private Boolean showFixUnlinked;
+
+    @Column(name = "show_notify_participants")
+    private Boolean showNotifyParticipants;
+
+    @Column(name = "show_export_recipients")
+    private Boolean showExportRecipients;
+
+    @Column(name = "breakout_num_groups")
+    @Builder.Default
+    private Integer breakoutNumGroups = 7;
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;

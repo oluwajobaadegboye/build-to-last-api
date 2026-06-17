@@ -1,0 +1,1 @@
+ALTER TABLE runs ADD COLUMN hotel_id INTEGER REFERENCES hotels(id);
