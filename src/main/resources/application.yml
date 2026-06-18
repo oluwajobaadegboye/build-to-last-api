@@ -60,6 +60,7 @@ btl:
         password-hash: ${ADMIN_1_PASSWORD_HASH}
       - username: ${ADMIN_2_USERNAME}
         password-hash: ${ADMIN_2_PASSWORD_HASH}
+
   uploads:
     dir: ${BTL_UPLOADS_DIR:./uploads}
     base-url: ${BTL_UPLOADS_BASE_URL:http://localhost:8080/api/v1/uploads}
