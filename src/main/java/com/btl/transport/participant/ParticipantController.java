@@ -102,9 +102,11 @@ public class ParticipantController {
     @Operation(summary = "Get program details", description = "Returns public program information and its associated hotel list")
     @GetMapping("/programs/{programId}")
     public ResponseEntity<Map<String, Object>> getProgramPublic(@PathVariable String programId) {
+        // Accept either the program id or its short code (ini), so shareable links like /p/BL work.
         Program program = programRepository.findById(programId)
+            .or(() -> programRepository.findFirstByIniIgnoreCase(programId))
             .orElseThrow(() -> new EntityNotFoundException("Program not found: " + programId));
-        List<Hotel> hotels = hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId);
+        List<Hotel> hotels = hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(program.getId());
         List<Map<String, Object>> hotelList = hotels.stream()
             .map(h -> Map.<String, Object>of(
                 "hotel_id", h.getId(),

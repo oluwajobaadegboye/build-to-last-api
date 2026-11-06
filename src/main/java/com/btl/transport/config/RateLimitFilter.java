@@ -67,6 +67,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         Bandwidth limit = switch (method + ":" + path) {
             case "POST:/api/v1/register"      -> perHour(5);
             case "POST:/api/v1/admin/login"   -> per(10, Duration.ofMinutes(15));
+            case "POST:/api/v1/auth/signup"   -> perHour(5);
+            case "POST:/api/v1/admin/programs" -> perHour(20);
             case "POST:/api/v1/update-flight" -> perHour(20);
             case "GET:/api/v1/participant-status" -> perMinute(30);
             default -> perMinute(60);

@@ -157,6 +157,9 @@ public class AdminController {
     private final AccommodationContactRepository accommodationContactRepository;
     private final Leg4CalculatorService leg4Calculator;
     private final BtlCodeService btlCodeService;
+    private final AdminAccess adminAccess;
+    private final AdminProperties adminProperties;
+    private final ProgramAdminRepository programAdminRepository;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -258,6 +261,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCodeWithHotel(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         return ResponseEntity.ok(participantSummary(p));
     }
 
@@ -269,6 +273,7 @@ public class AdminController {
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
+        adminAccess.requireProgram(p.getProgramId());
         // Hotel lookup — simplified; full impl would fetch hotel by req.hotelId()
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
@@ -283,6 +288,7 @@ public class AdminController {
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(Boolean.TRUE.equals(req.needsAttention()));
         p.setAttentionReason(req.attentionReason());
         p.setUpdatedAt(OffsetDateTime.now());
@@ -294,8 +300,10 @@ public class AdminController {
     @Operation(summary = "List alerts", description = "Returns all participants currently flagged as needing attention")
     @GetMapping("/alerts")
     public ResponseEntity<List<Map<String, Object>>> getAlerts() {
+        String scopedProgram = adminAccess.currentProgramId();
         List<Participant> flagged = participantRepository.findAll().stream()
             .filter(p -> Boolean.TRUE.equals(p.getNeedsAttention()))
+            .filter(p -> scopedProgram == null || scopedProgram.equals(p.getProgramId()))
             .toList();
         List<Map<String, Object>> alerts = flagged.stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -316,6 +324,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
         p.setUpdatedAt(OffsetDateTime.now());
@@ -357,8 +366,10 @@ public class AdminController {
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
+        adminAccess.requireProgram(run.getProgramId());
         Driver driver = driverRepository.findById(req.driverId())
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + req.driverId()));
+        adminAccess.requireProgram(driver.getProgramId());
         run.setDriver(driver);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -373,8 +384,10 @@ public class AdminController {
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
+        adminAccess.requireProgram(run.getProgramId());
         Vehicle vehicle = vehicleRepository.findById(req.vehicleId())
             .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + req.vehicleId()));
+        adminAccess.requireProgram(vehicle.getProgramId());
         run.setVehicle(vehicle);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -388,6 +401,7 @@ public class AdminController {
             @RequestBody java.util.Map<String, Object> req) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         String link = req.get("whatsapp_group_link") instanceof String s ? s : null;
         if (link != null && !link.isBlank() && !link.startsWith("https://chat.whatsapp.com/")) {
             throw new org.springframework.web.server.ResponseStatusException(
@@ -406,8 +420,10 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
         Run run = runRepository.findByRunId(req.runId())
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
+        adminAccess.requireProgram(run.getProgramId());
         Participant participant = participantRepository.findByBtlCode(req.btlCode())
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        adminAccess.requireProgram(participant.getProgramId());
         boolean boarded = Boolean.TRUE.equals(req.boarded());
         runService.markBoarded(run.getId(), participant.getId(), boarded);
         return ResponseEntity.ok(Map.of("success", true, "boarded", boarded));
@@ -452,6 +468,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.DriverAdminDto> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
         Driver d = driverRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
+        adminAccess.requireProgram(d.getProgramId());
         if (updates.getName()     != null) d.setName(updates.getName());
         if (updates.getPhone()    != null) d.setPhone(updates.getPhone());
         if (updates.getWhatsapp() != null) d.setWhatsapp(updates.getWhatsapp());
@@ -463,6 +480,7 @@ public class AdminController {
     @DeleteMapping("/drivers/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteDriver(@PathVariable Integer id) {
+        driverRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         runRepository.clearDriverFromRuns(id);
         driverRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -473,6 +491,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> resendDriverLink(@PathVariable Integer id) {
         Driver d = driverRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
+        adminAccess.requireProgram(d.getProgramId());
         if (d.getEmail() == null || d.getEmail().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Driver has no email address on file.");
         }
@@ -492,6 +511,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         if (p.getEmail() != null && !p.getEmail().isBlank()) {
             notificationService.sendRegistrationConfirmation(p);
         }
@@ -524,6 +544,7 @@ public class AdminController {
     public ResponseEntity<Vehicle> updateVehicle(@PathVariable Integer id, @RequestBody Vehicle updates) {
         Vehicle v = vehicleRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + id));
+        adminAccess.requireProgram(v.getProgramId());
         if (updates.getLabel()    != null) v.setLabel(updates.getLabel());
         if (updates.getCapacity() != null) v.setCapacity(updates.getCapacity());
         if (updates.getType()     != null) v.setType(updates.getType());
@@ -533,6 +554,7 @@ public class AdminController {
     @Operation(summary = "Delete vehicle", description = "Permanently deletes a vehicle by ID")
     @DeleteMapping("/vehicles/{id}")
     public ResponseEntity<AdminDtos.SuccessResponse> deleteVehicle(@PathVariable Integer id) {
+        vehicleRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         vehicleRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -573,6 +595,7 @@ public class AdminController {
             @PathVariable String code) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
@@ -589,6 +612,7 @@ public class AdminController {
             @RequestBody UpdateParticipantRequest req) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
         if (req.fullName()        != null) p.setFullName(req.fullName());
         if (req.phone()           != null) p.setPhone(req.phone());
         if (req.email()           != null) p.setEmail(req.email());
@@ -659,6 +683,7 @@ public class AdminController {
 
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
 
         Direction dir = "departure".equalsIgnoreCase(direction) ? Direction.TO_AIRPORT : Direction.TO_HOTEL;
 
@@ -723,6 +748,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> deleteParticipant(@PathVariable String code) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
 
         List<RunParticipant> participantRps =
             runParticipantRepository.findByIdParticipantId(p.getId());
@@ -762,6 +788,7 @@ public class AdminController {
             @PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
         p.setUpdatedAt(OffsetDateTime.now());
@@ -791,6 +818,7 @@ public class AdminController {
             @RequestBody UpdateRunRequest req) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         if (req.status() != null) {
             RunStatusEnum newStatus = RunStatusEnum.valueOf(req.status().toUpperCase());
             run.setStatus(newStatus);
@@ -814,6 +842,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> deleteRun(@PathVariable String runId) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         runRepository.delete(run);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -1061,10 +1090,13 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> moveParticipant(@RequestBody MoveParticipantRequest req) {
         Participant p = participantRepository.findByBtlCode(req.btlCode())
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        adminAccess.requireProgram(p.getProgramId());
         Run from = runRepository.findByRunId(req.fromRunId())
             .orElseThrow(() -> new EntityNotFoundException("Source run not found: " + req.fromRunId()));
+        adminAccess.requireProgram(from.getProgramId());
         Run to = runRepository.findByRunId(req.toRunId())
             .orElseThrow(() -> new EntityNotFoundException("Target run not found: " + req.toRunId()));
+        adminAccess.requireProgram(to.getProgramId());
 
         if (req.fromRunId().equals(req.toRunId()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Source and target runs are the same.");
@@ -1183,6 +1215,7 @@ public class AdminController {
             @PathVariable Integer driverId) {
         Driver driver = driverRepository.findById(driverId)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+        adminAccess.requireProgram(driver.getProgramId());
         List<Run> runs = runRepository
             .findByDriverIdOrderByConferenceDateAscDepartTimeAsc(driverId);
         List<AdminDtos.RunAdminResponse> runResponses = runs.stream().map(run -> {
@@ -1205,6 +1238,7 @@ public class AdminController {
             @PathVariable Integer driverId) {
         Driver driver = driverRepository.findById(driverId)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+        adminAccess.requireProgram(driver.getProgramId());
         List<Run> runs = runRepository
             .findByDriverIdOrderByConferenceDateAscDepartTimeAsc(driverId);
         if (runs.isEmpty()) {
@@ -1667,17 +1701,20 @@ public class AdminController {
     public ResponseEntity<List<Map<String, Object>>> listAdminUsers(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
         if (programId == null) return ResponseEntity.ok(List.of());
-        return ResponseEntity.ok(adminUserRepository.findByProgramIdOrderByCreatedAtAsc(programId)
-            .stream().map(u -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id", u.getId());
-                m.put("username", u.getUsername());
-                m.put("display_name", u.getDisplayName());
-                m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
-                m.put("role", u.getRole());
-                m.put("email", u.getEmail());
-                return m;
-            }).toList());
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ProgramAdmin pa : programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId)) {
+            AdminUser u = adminUserRepository.findById(pa.getAdminUserId()).orElse(null);
+            if (u == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", u.getId());
+            m.put("username", u.getUsername());
+            m.put("display_name", u.getDisplayName());
+            m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
+            m.put("role", pa.getRole());
+            m.put("email", u.getEmail());
+            out.add(m);
+        }
+        return ResponseEntity.ok(out);
     }
 
     @Operation(summary = "Create admin user", description = "Creates a new admin user with a bcrypt-hashed password and associates them with a program")
@@ -1689,9 +1726,15 @@ public class AdminController {
         if (req.username() == null || req.password() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "username and password required"));
         }
+        if (programId == null || programId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No program selected"));
+        }
+        if (usernameTaken(req.username().trim(), null)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
+        }
         AdminUser user = AdminUser.builder()
             .programId(programId)
-            .username(req.username())
+            .username(req.username().trim())
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
@@ -1699,6 +1742,8 @@ public class AdminController {
             .email(req.email())
             .build();
         adminUserRepository.save(user);
+        programAdminRepository.save(ProgramAdmin.builder()
+            .adminUserId(user.getId()).programId(programId).role(user.getRole()).build());
         if (user.getEmail() != null && !user.getEmail().isBlank()) {
             try {
                 sendAdminWelcomeEmail(user, req.password());
@@ -1723,13 +1768,25 @@ public class AdminController {
             @PathVariable Integer id) {
         AdminUser user = adminUserRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Admin user not found: " + id));
-        if (programId != null && !programId.equals(user.getProgramId())) {
-            return ResponseEntity.status(403).body(new AdminDtos.SuccessResponse(false));
-        }
-        if (programId != null && adminUserRepository.countByProgramId(programId) <= 1) {
+        if (programId == null) {
             return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
         }
-        adminUserRepository.delete(user);
+        ProgramAdmin membership = programAdminRepository.findByAdminUserIdAndProgramId(user.getId(), programId).orElse(null);
+        if (membership == null) {
+            return ResponseEntity.status(403).body(new AdminDtos.SuccessResponse(false));
+        }
+        if (programAdminRepository.countByProgramId(programId) <= 1) {
+            return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
+        }
+        programAdminRepository.delete(membership);
+        List<ProgramAdmin> remaining = programAdminRepository.findByAdminUserId(user.getId()).stream()
+            .filter(pa -> !pa.getId().equals(membership.getId())).toList();
+        if (remaining.isEmpty()) {
+            adminUserRepository.delete(user);  // no programs left — remove the account
+        } else if (programId.equals(user.getProgramId())) {
+            user.setProgramId(remaining.get(0).getProgramId());
+            adminUserRepository.save(user);
+        }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
@@ -1750,10 +1807,15 @@ public class AdminController {
             @RequestBody UpdateAdminUserRequest req) {
         AdminUser user = adminUserRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Admin user not found: " + id));
-        if (programId != null && !programId.equals(user.getProgramId())) {
+        ProgramAdmin membership = programId == null ? null
+            : programAdminRepository.findByAdminUserIdAndProgramId(user.getId(), programId).orElse(null);
+        if (membership == null) {
             return ResponseEntity.status(403).body(Map.of("error", "forbidden"));
         }
         if (req.username() != null && !req.username().isBlank()) {
+            if (usernameTaken(req.username().trim(), user.getId())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
+            }
             user.setUsername(req.username().trim());
         }
         if (req.displayName() != null) {
@@ -1763,7 +1825,9 @@ public class AdminController {
             user.setPasswordHash(bcrypt.encode(req.newPassword()));
         }
         if (req.role() != null && !req.role().isBlank()) {
-            user.setRole(req.role());
+            membership.setRole(req.role());
+            programAdminRepository.save(membership);
+            if (programId.equals(user.getProgramId())) user.setRole(req.role());
         }
         if (req.email() != null) {
             user.setEmail(req.email().isBlank() ? null : req.email().trim());
@@ -1779,9 +1843,17 @@ public class AdminController {
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("created_at", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
-        result.put("role", user.getRole());
+        result.put("role", membership.getRole());
         result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
+    }
+
+    /** Usernames are global (login is account-based). Also reserves YAML super-admin names. */
+    private boolean usernameTaken(String username, Integer exceptUserId) {
+        if (adminProperties.getUsers().stream().anyMatch(u -> username.equalsIgnoreCase(u.getUsername()))) return true;
+        return adminUserRepository.findAll().stream()
+            .anyMatch(u -> u.getUsername() != null && u.getUsername().equalsIgnoreCase(username)
+                && (exceptUserId == null || !u.getId().equals(exceptUserId)));
     }
 
     @SuppressWarnings("unchecked")
@@ -2027,6 +2099,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateRoomRequest req) {
         RoomAssignment room = roomAssignmentRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
         if (req.gender()   != null) room.setGender(req.gender().isEmpty() ? null : req.gender());
         if (req.roomType() != null) room.setRoomType(req.roomType());
         if (req.notes()    != null) room.setNotes(req.notes().isEmpty() ? null : req.notes());
@@ -2051,6 +2124,7 @@ public class AdminController {
     @DeleteMapping("/room-assignments/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteRoom(@PathVariable Integer id) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomAssignmentRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2064,6 +2138,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpsertOccupantRequest req) {
         RoomAssignment room = roomAssignmentRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
 
         RoomOccupant occ = roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .orElseGet(() -> RoomOccupant.builder().room(room).slot(slot).name("").build());
@@ -2098,6 +2173,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> removeOccupant(
             @PathVariable Integer id,
             @PathVariable Short slot) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .ifPresent(roomOccupantRepository::delete);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -2110,6 +2186,7 @@ public class AdminController {
             @PathVariable Integer id,
             @PathVariable Short slot,
             @RequestBody AdminDtos.ToggleTicketRequest req) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .ifPresent(occ -> {
                 occ.setTicketReceived(req.received());
@@ -2131,6 +2208,8 @@ public class AdminController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Occupant not found"));
         RoomAssignment toRoom = roomAssignmentRepository.findById(req.toRoomId())
             .orElseThrow(() -> new EntityNotFoundException("Target room not found: " + req.toRoomId()));
+        roomAssignmentRepository.findById(req.fromRoomId()).ifPresent(r -> adminAccess.requireProgram(r.getProgramId()));
+        adminAccess.requireProgram(toRoom.getProgramId());
 
         int capacity = roomCapacity(toRoom.getRoomType());
         short targetSlot = -1;
@@ -2199,6 +2278,7 @@ public class AdminController {
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
         RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
         Program program = programRepository.findById(room.getProgramId())
             .orElseThrow(() -> new EntityNotFoundException("Program not found: " + room.getProgramId()));
         boolean roommateVisible = program.getRoommateVisible() != null ? program.getRoommateVisible() : true;
@@ -2213,6 +2293,7 @@ public class AdminController {
             @PathVariable Short slot) {
         RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(roomId)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + roomId));
+        adminAccess.requireProgram(room.getProgramId());
         RoomOccupant occ = room.getOccupants().stream()
             .filter(o -> slot.equals(o.getSlot()))
             .findFirst()
@@ -2339,6 +2420,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateAccomContactRequest req) {
         AccommodationContact contact = accommodationContactRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Contact not found: " + id));
+        adminAccess.requireProgram(contact.getProgramId());
         if (req.name()     != null) contact.setName(req.name());
         if (req.phone()    != null) contact.setPhone(req.phone().isEmpty() ? null : req.phone());
         if (req.whatsapp() != null) contact.setWhatsapp(req.whatsapp().isEmpty() ? null : req.whatsapp());
@@ -2350,6 +2432,7 @@ public class AdminController {
     @DeleteMapping("/accommodation-contacts/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteAccomContact(@PathVariable Integer id) {
+        accommodationContactRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         accommodationContactRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2415,13 +2498,17 @@ public class AdminController {
     @GetMapping("/programs")
     public ResponseEntity<List<AdminDtos.ProgramResponse>> listPrograms(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String programId = null;
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            programId = jwtService.extractProgramId(authHeader.substring(7));
+        List<Program> programs;
+        if (adminAccess.isSuper()) {
+            programs = programRepository.findAllByOrderByCreatedAtDesc();
+        } else {
+            Integer userId = adminAccess.currentUserId();
+            Set<String> ids = userId == null ? Set.of()
+                : programAdminRepository.findByAdminUserId(userId).stream()
+                    .map(ProgramAdmin::getProgramId).collect(java.util.stream.Collectors.toSet());
+            programs = programRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(p -> ids.contains(p.getId())).toList();
         }
-        List<Program> programs = programId != null
-            ? programRepository.findById(programId).map(List::of).orElse(List.of())
-            : programRepository.findAllByOrderByCreatedAtDesc();
         return ResponseEntity.ok(programs.stream().map(this::toProgramDto).toList());
     }
 
@@ -2430,15 +2517,25 @@ public class AdminController {
     @Transactional
     public ResponseEntity<AdminDtos.ProgramResponse> createProgram(
             @RequestBody AdminDtos.CreateProgramRequest req) {
-        if (req.ini() != null && !req.ini().isBlank() && programRepository.existsByIni(req.ini())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Program ini '" + req.ini() + "' is already in use");
+        // Never let a create overwrite an existing program (JPA save() on an existing id is an update).
+        if (req.id() != null && programRepository.existsById(req.id())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Program id '" + req.id() + "' is already in use");
+        }
+        // Short codes are global; with open sign-up collisions are common (two "Youth Camp" → "YC"),
+        // so pick the next free variant (YC, YC2, YC3, …) instead of failing the create.
+        String ini = req.ini();
+        if (ini != null && !ini.isBlank() && programRepository.existsByIni(ini)) {
+            String base = ini;
+            int n = 2;
+            while (programRepository.existsByIni(base + n)) n++;
+            ini = base + n;
         }
         String rulesJson = rulesJson(req.rules());
         Map<String, Object> rules = parseRules(rulesJson);
         Program p = Program.builder()
             .id(req.id() != null ? req.id() : "p_" + System.currentTimeMillis())
             .name(req.name())
-            .ini(req.ini())
+            .ini(ini)
             .type(req.type() != null ? req.type() : "Conference")
             .startDate(req.startDate())
             .endDate(req.endDate())
@@ -2462,6 +2559,14 @@ public class AdminController {
             .updatedAt(OffsetDateTime.now())
             .build();
         programRepository.save(p);
+        Integer creatorId = adminAccess.currentUserId();
+        if (creatorId != null) {
+            programAdminRepository.save(ProgramAdmin.builder()
+                .adminUserId(creatorId).programId(p.getId()).role("FULL").build());
+            adminUserRepository.findById(creatorId).ifPresent(u -> {
+                if (u.getProgramId() == null) { u.setProgramId(p.getId()); adminUserRepository.save(u); }
+            });
+        }
         syncProgramHotels(p.getId(), req.hotels());
         notificationConfigRepository.findByProgramId(p.getId()).orElseGet(() -> {
             NotificationConfig nc = new NotificationConfig();
@@ -2517,6 +2622,12 @@ public class AdminController {
     @DeleteMapping("/programs/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteProgram(@PathVariable String id) {
+        for (AdminUser u : adminUserRepository.findByProgramIdOrderByCreatedAtAsc(id)) {
+            String next = programAdminRepository.findByAdminUserId(u.getId()).stream()
+                .map(ProgramAdmin::getProgramId).filter(pid -> !pid.equals(id)).findFirst().orElse(null);
+            u.setProgramId(next);
+            adminUserRepository.save(u);
+        }
         programRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }

@@ -7,4 +7,5 @@ import java.util.List;
 public interface ProgramRepository extends JpaRepository<Program, String> {
     List<Program> findAllByOrderByCreatedAtDesc();
     boolean existsByIni(String ini);
+    java.util.Optional<Program> findFirstByIniIgnoreCase(String ini);
 }

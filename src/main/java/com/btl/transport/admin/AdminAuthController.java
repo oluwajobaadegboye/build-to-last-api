@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Tag(name = "Admin Auth", description = "Admin authentication — login and password management")
@@ -22,6 +25,8 @@ public class AdminAuthController {
     private final AdminProperties props;
     private final JwtService jwtService;
     private final AdminUserRepository adminUserRepository;
+    private final ProgramAdminRepository programAdminRepository;
+    private final AdminAccess adminAccess;
 
     private static final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
 
@@ -33,7 +38,11 @@ public class AdminAuthController {
         // 1. Try DB-stored admin user (look up by username alone — no program_id required)
         AdminUser dbUser = adminUserRepository.findByUsernameIgnoreCase(body.username()).orElse(null);
         if (dbUser != null && bcrypt.matches(body.password(), dbUser.getPasswordHash())) {
-            String token = jwtService.generateToken(body.username(), dbUser.getProgramId(), dbUser.getRole());
+            // One program → token scoped to it (lands straight on dashboard); several/none → picker.
+            List<ProgramAdmin> memberships = programAdminRepository.findByAdminUserId(dbUser.getId());
+            String tokenProgram = memberships.size() == 1 ? memberships.get(0).getProgramId() : null;
+            String tokenRole    = memberships.size() == 1 ? memberships.get(0).getRole() : dbUser.getRole();
+            String token = jwtService.generateToken(dbUser.getUsername(), tokenProgram, tokenRole);
             return ResponseEntity.ok(Map.of(
                 "token", token,
                 "expires_at", jwtService.getExpiry(token).toString()
@@ -58,6 +67,25 @@ public class AdminAuthController {
             "token", token,
             "expires_at", expiry.toString()
         ));
+    }
+
+    @Operation(summary = "Current admin", description = "Returns the signed-in admin and the programs they can manage, with their role in each")
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, Object>> me(@RequestHeader("Authorization") String authHeader) {
+        String username = jwtService.validateAndExtractUsername(authHeader.substring(7));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("username", username);
+        out.put("is_super", adminAccess.isSuper());
+        List<Map<String, Object>> programs = new ArrayList<>();
+        Integer userId = adminAccess.currentUserId();
+        if (userId != null) {
+            adminUserRepository.findById(userId).ifPresent(u -> out.put("display_name", u.getDisplayName()));
+            for (ProgramAdmin pa : programAdminRepository.findByAdminUserId(userId)) {
+                programs.add(Map.of("program_id", pa.getProgramId(), "role", pa.getRole()));
+            }
+        }
+        out.put("programs", programs);
+        return ResponseEntity.ok(out);
     }
 
     public record ChangePasswordRequest(
