@@ -81,7 +81,8 @@ public class AdminAuthController {
         if (userId != null) {
             adminUserRepository.findById(userId).ifPresent(u -> out.put("display_name", u.getDisplayName()));
             for (ProgramAdmin pa : programAdminRepository.findByAdminUserId(userId)) {
-                programs.add(Map.of("program_id", pa.getProgramId(), "role", pa.getRole()));
+                programs.add(Map.of("program_id", pa.getProgramId(), "role", pa.getRole(),
+                    "permissions", AdminPermissions.parse(pa.getRole())));
             }
         }
         out.put("programs", programs);

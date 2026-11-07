@@ -5,6 +5,7 @@ import com.btl.transport.flight.Flight;
 import com.btl.transport.flight.FlightRepository;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
+import com.btl.transport.payment.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class ParticipantExportController {
     private final FlightRepository flightRepository;
     private final RegistrationFieldRepository fieldRepository;
     private final RegistrationFieldService fieldService;
+    private final PaymentService paymentService;
 
     @Operation(summary = "Export participants CSV", description = "All participants of the X-Program-Id program, including custom question answers")
     @GetMapping(value = "/export.csv")
@@ -40,6 +42,7 @@ public class ParticipantExportController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No program selected");
         }
         List<Participant> participants = participantRepository.findAllByProgramIdWithHotel(programId);
+        Map<Integer, java.math.BigDecimal> paidTotals = paymentService.totals(participants.stream().map(Participant::getId).toList());
         List<RegistrationField> fields = fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId);
 
         Map<Integer, List<Flight>> flights = participants.isEmpty() ? Map.of()
@@ -48,7 +51,8 @@ public class ParticipantExportController {
 
         List<String> header = new ArrayList<>(List.of(
             "Code", "Full name", "Email", "Phone", "State", "Status", "Hotel", "Shuttle opt-in",
-            "Arrival flight", "Arrival time", "Departure flight", "Departure time", "Breakout group", "Registered at"));
+            "Arrival flight", "Arrival time", "Departure flight", "Departure time", "Breakout group", "Registered at",
+            "Payment status", "Amount paid"));
         for (RegistrationField f : fields) {
             header.add(Boolean.TRUE.equals(f.getActive()) ? f.getLabel() : f.getLabel() + " (removed)");
         }
@@ -69,7 +73,10 @@ public class ParticipantExportController {
                 flightLabel(arr), arr != null && arr.getSubmittedDatetime() != null ? arr.getSubmittedDatetime().toString() : "",
                 flightLabel(dep), dep != null && dep.getSubmittedDatetime() != null ? dep.getSubmittedDatetime().toString() : "",
                 p.getBreakoutGroup() != null ? String.valueOf(p.getBreakoutGroup()) : "",
-                p.getCreatedAt() != null ? p.getCreatedAt().toString() : ""));
+                p.getCreatedAt() != null ? p.getCreatedAt().toString() : "",
+                switch (PaymentService.normalizeStatus(p.getPaymentStatus())) {
+                    case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; },
+                paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO).toPlainString()));
             for (RegistrationField f : fields) r.add(answerText(answers.get(f.getFieldKey())));
             row(csv, r);
         }

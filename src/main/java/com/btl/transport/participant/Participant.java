@@ -50,6 +50,11 @@ public class Participant {
     @Column(name = "notes")
     private String notes;
 
+    /** unpaid | partial | paid — payments are recorded by admins (they happen outside the app). */
+    @Column(name = "payment_status", nullable = false)
+    @Builder.Default
+    private String paymentStatus = "unpaid";
+
     /** JSON object of answers to the program's custom registration questions, keyed by field key. */
     @Column(name = "custom_answers")
     private String customAnswers;

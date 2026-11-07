@@ -163,6 +163,7 @@ public class AdminController {
     private final AdminProperties adminProperties;
     private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
     private final ProgramAdminRepository programAdminRepository;
+    private final com.btl.transport.payment.ParticipantPaymentRepository participantPaymentRepository;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -206,6 +207,7 @@ public class AdminController {
         @RequestParam(name = "hotel_id", required = false) Integer hotelId,
         @RequestParam(name = "needs_attention", required = false) Boolean needsAttention,
         @RequestParam(required = false) String search,
+        @RequestParam(name = "payment_status", required = false) String paymentStatus,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size
     ) {
@@ -218,6 +220,9 @@ public class AdminController {
 
         Stream<Participant> stream = all.stream();
         if (statusEnum != null) stream = stream.filter(p -> statusEnum.equals(p.getStatus()));
+        String payFilter = paymentStatus != null && !paymentStatus.isBlank() ? paymentStatus.trim().toLowerCase() : null;
+        if (payFilter != null) stream = stream.filter(p ->
+            payFilter.equals(com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus())));
         if (hotelId != null) stream = stream.filter(p -> p.getHotel() != null && hotelId.equals(p.getHotel().getId()));
         if (Boolean.TRUE.equals(needsAttention)) stream = stream.filter(p -> Boolean.TRUE.equals(p.getNeedsAttention()));
         if (search != null && !search.isBlank()) {
@@ -742,6 +747,14 @@ public class AdminController {
         Flight arrival   = flights.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
         Flight departure = flights.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    /** Normalised permission set from a request (list preferred, legacy single role accepted); FULL by default. */
+    private static String permissionsOrDefault(java.util.List<String> permissions, String role) {
+        String fromList = AdminPermissions.format(permissions);
+        if (fromList != null) return fromList;
+        String fromRole = role != null ? AdminPermissions.format(java.util.List.of(role.split(","))) : null;
+        return fromRole != null ? fromRole : AdminPermissions.FULL;
     }
 
     private ZoneId programZone(Program program) {
@@ -1606,7 +1619,9 @@ public class AdminController {
             boardedArrival,
             boardedDeparture,
             p.getBreakoutGroup(),
-            registrationFieldService.parseAnswers(p.getCustomAnswers())
+            registrationFieldService.parseAnswers(p.getCustomAnswers()),
+            com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus()),
+            participantPaymentRepository.totalForParticipant(p.getId())
         );
     }
 
@@ -1645,7 +1660,7 @@ public class AdminController {
         var brand = com.btl.transport.notification.ProgramBranding.of(
             programId != null ? programRepository.findById(programId).orElse(null) : null);
         String displayName = u.getDisplayName() != null ? u.getDisplayName() : u.getUsername();
-        String roleLabel   = "ACCOMMODATION".equals(u.getRole()) ? "Accommodation Admin" : "Full Access";
+        String roleLabel   = AdminPermissions.label(AdminPermissions.parse(u.getRole()));
         String loginUrl    = frontendBaseUrl + "/admin/login";
         String plain = "Hi " + displayName + ",\n\n"
             + "An admin account has been created for you for " + brand.nameOrGeneric() + ".\n\n"
@@ -1715,7 +1730,8 @@ public class AdminController {
         String password,
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
         String role,
-        String email
+        String email,
+        java.util.List<String> permissions
     ) {}
 
     @Operation(summary = "List admin users", description = "Returns all admin users belonging to the program specified in X-Program-Id")
@@ -1733,6 +1749,7 @@ public class AdminController {
             m.put("display_name", u.getDisplayName());
             m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
             m.put("role", pa.getRole());
+            m.put("permissions", AdminPermissions.parse(pa.getRole()));
             m.put("email", u.getEmail());
             out.add(m);
         }
@@ -1760,7 +1777,7 @@ public class AdminController {
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
-            .role(req.role() != null ? req.role() : "FULL")
+            .role(permissionsOrDefault(req.permissions(), req.role()))
             .email(req.email())
             .build();
         adminUserRepository.save(user);
@@ -1778,6 +1795,7 @@ public class AdminController {
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("role", user.getRole());
+        result.put("permissions", AdminPermissions.parse(user.getRole()));
         result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
     }
@@ -1800,6 +1818,12 @@ public class AdminController {
         if (programAdminRepository.countByProgramId(programId) <= 1) {
             return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
         }
+        // Never remove the program's last full admin.
+        if (AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
+                && programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream()
+                    .filter(pa -> AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)).count() <= 1) {
+            return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
+        }
         programAdminRepository.delete(membership);
         List<ProgramAdmin> remaining = programAdminRepository.findByAdminUserId(user.getId()).stream()
             .filter(pa -> !pa.getId().equals(membership.getId())).toList();
@@ -1817,7 +1841,8 @@ public class AdminController {
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
         @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword,
         String role,
-        String email
+        String email,
+        java.util.List<String> permissions
     ) {}
 
     @Operation(summary = "Update admin user", description = "Updates an admin user's username, display name, and/or password")
@@ -1846,10 +1871,18 @@ public class AdminController {
         if (req.newPassword() != null && !req.newPassword().isBlank()) {
             user.setPasswordHash(bcrypt.encode(req.newPassword()));
         }
-        if (req.role() != null && !req.role().isBlank()) {
-            membership.setRole(req.role());
+        if (req.permissions() != null || (req.role() != null && !req.role().isBlank())) {
+            String perms = permissionsOrDefault(req.permissions(), req.role());
+            // Never leave a program without a full admin.
+            boolean losingFull = AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
+                && !AdminPermissions.parse(perms).contains(AdminPermissions.FULL);
+            if (losingFull && programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream()
+                    .filter(pa -> AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)).count() <= 1) {
+                return ResponseEntity.badRequest().body(Map.of("error", "A program needs at least one full admin"));
+            }
+            membership.setRole(perms);
             programAdminRepository.save(membership);
-            if (programId.equals(user.getProgramId())) user.setRole(req.role());
+            if (programId.equals(user.getProgramId())) user.setRole(perms);
         }
         if (req.email() != null) {
             user.setEmail(req.email().isBlank() ? null : req.email().trim());
@@ -2610,6 +2643,19 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateProgramRequest req) {
         Program p = programRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Program not found: " + id));
+        // Accommodation admins reach this endpoint only to save the hotel list (AdminPermissions).
+        if (!adminAccess.isFull()) {
+            for (var c : req.getClass().getRecordComponents()) {
+                if (c.getName().equals("hotels")) continue;
+                try {
+                    if (c.getAccessor().invoke(req) != null) {
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only change the hotel list");
+                    }
+                } catch (ReflectiveOperationException e) {
+                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only change the hotel list");
+                }
+            }
+        }
         if (req.name()      != null) p.setName(req.name());
         if (req.type()      != null) p.setType(req.type());
         if (req.startDate() != null) p.setStartDate(req.startDate());
@@ -2627,6 +2673,13 @@ public class AdminController {
         if (req.airportPickupsEnabled() != null) p.setAirportPickupsEnabled(req.airportPickupsEnabled());
         if (req.lodgingType()           != null) p.setLodgingType(Program.normalizeLodgingType(req.lodgingType()));
         if (req.venueDepartureRule()    != null) p.setVenueDepartureRule(req.venueDepartureRule());
+        if (req.registrationFee()       != null) {
+            if (req.registrationFee().signum() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Fee can't be negative");
+            p.setRegistrationFee(req.registrationFee().signum() == 0 ? null : req.registrationFee());
+        }
+        if (req.feeCurrency()           != null && req.feeCurrency().trim().matches("[A-Za-z]{3}")) {
+            p.setFeeCurrency(req.feeCurrency().trim().toUpperCase());
+        }
         if (req.venueDepartureCutoff()  != null) {
             if (ProgramDates.parseTime(req.venueDepartureCutoff()) == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cutoff must be a time like 10:30");
@@ -2698,6 +2751,8 @@ public class AdminController {
             !Boolean.FALSE.equals(p.getDailyShuttleEnabled()),
             !Boolean.FALSE.equals(p.getAirportPickupsEnabled()),
             Program.normalizeLodgingType(p.getLodgingType()),
+            p.getRegistrationFee(),
+            p.getFeeCurrency() != null ? p.getFeeCurrency() : "USD",
             Boolean.TRUE.equals(p.getVenueDepartureRule()),
             ProgramDates.venueDepartureCutoff(p) != null ? ProgramDates.venueDepartureCutoff(p).toString()
                 : (p.getVenueDepartureCutoff() != null ? p.getVenueDepartureCutoff() : "10:30"),

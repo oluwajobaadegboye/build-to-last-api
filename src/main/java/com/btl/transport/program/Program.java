@@ -144,6 +144,14 @@ public class Program {
     @Column(name = "venue_departure_cutoff", length = 5)
     private String venueDepartureCutoff;
 
+    /** Optional registration fee; when set, payment status follows the total paid. */
+    @Column(name = "registration_fee")
+    private java.math.BigDecimal registrationFee;
+
+    @Column(name = "fee_currency", nullable = false, length = 3)
+    @Builder.Default
+    private String feeCurrency = "USD";
+
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 
     /** Normalised lodging type; unknown or blank values fall back to "hotel". */

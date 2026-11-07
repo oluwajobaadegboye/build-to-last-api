@@ -1,6 +1,7 @@
 package com.btl.transport.config;
 
 import com.btl.transport.admin.AdminAccess;
+import com.btl.transport.admin.AdminPermissions;
 import com.btl.transport.admin.AdminProperties;
 import com.btl.transport.admin.AdminUser;
 import com.btl.transport.admin.AdminUserRepository;
@@ -71,6 +72,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        if (username != null) request.setAttribute(AdminAccess.ATTR_USERNAME, username);
         AdminUser dbUser = username == null ? null
             : adminUserRepository.findByUsernameIgnoreCase(username).orElse(null);
 
@@ -109,10 +111,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             reject(response, HttpStatus.FORBIDDEN, "No program selected");
             return;
         }
-        if (!programAdminRepository.existsByAdminUserIdAndProgramId(dbUser.getId(), programId)) {
+        var membership = programAdminRepository.findByAdminUserIdAndProgramId(dbUser.getId(), programId).orElse(null);
+        if (membership == null) {
             reject(response, HttpStatus.FORBIDDEN, "You do not have access to this program");
             return;
         }
+        // Enforce the admin's permissions in this program on every request.
+        var perms = AdminPermissions.parse(membership.getRole());
+        if (!AdminPermissions.isAllowed(perms, request.getMethod(), path)) {
+            reject(response, HttpStatus.FORBIDDEN, "You don't have permission to do this");
+            return;
+        }
+        request.setAttribute(AdminAccess.ATTR_PERMISSIONS, perms);
         // For /programs/{id} paths, scope the request to that program even if the header differs.
         request.setAttribute(AdminAccess.ATTR_PROGRAM_ID, programId);
 
