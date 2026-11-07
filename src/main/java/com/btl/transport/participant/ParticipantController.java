@@ -120,6 +120,13 @@ public class ParticipantController {
         resp.put("name", program.getName());
         resp.put("ini", program.getIni() != null ? program.getIni() : "");
         resp.put("registration_fields", registrationFieldService.activeFieldDtos(program.getId()));
+        resp.put("daily_shuttle_enabled", !Boolean.FALSE.equals(program.getDailyShuttleEnabled()));
+        resp.put("airport_pickups_enabled", !Boolean.FALSE.equals(program.getAirportPickupsEnabled()));
+        resp.put("lodging_type", Program.normalizeLodgingType(program.getLodgingType()));
+        resp.put("venue", program.getVenue() != null ? program.getVenue() : "");
+        // "Leave from the venue" departure rule: null cutoff when the program doesn't use it.
+        var venueCutoff = com.btl.transport.program.ProgramDates.venueDepartureCutoff(program);
+        resp.put("venue_departure_cutoff", venueCutoff != null ? venueCutoff.toString() : null);
         resp.put("phase", program.getPhase() != null ? program.getPhase() : "setup");
         resp.put("city", program.getCity() != null ? program.getCity() : "");
         resp.put("state", program.getState() != null ? program.getState() : "");
@@ -139,13 +146,10 @@ public class ParticipantController {
     @GetMapping("/coordinator-contacts")
     public ResponseEntity<CoordinatorContactsResponse> coordinatorContacts(
             @RequestParam(name = "program_id", required = false) String programId) {
-        NotificationConfig cfg = null;
-        if (programId != null) {
-            cfg = notificationConfigRepository.findByProgramId(programId).orElse(null);
-        }
-        if (cfg == null) {
-            cfg = notificationConfigRepository.findByConfigKey("main").orElse(null);
-        }
+        // Only the program's own contacts: never another program's (the global default was BTL's).
+        NotificationConfig cfg = programId != null
+            ? notificationConfigRepository.findByProgramId(programId).orElse(null)
+            : null;
         if (cfg == null) return ResponseEntity.ok(new CoordinatorContactsResponse(null, null));
 
         return ResponseEntity.ok(new CoordinatorContactsResponse(
@@ -283,7 +287,10 @@ public class ParticipantController {
                     prog.getId(), prog.getName(), prog.getIni(),
                     prog.getCity(), prog.getState(), prog.getLogoUrl(),
                     prog.getStartDate(), prog.getEndDate(),
-                    prog.getAirport(), prog.getVenue()
+                    prog.getAirport(), prog.getVenue(),
+                    !Boolean.FALSE.equals(prog.getDailyShuttleEnabled()),
+                    !Boolean.FALSE.equals(prog.getAirportPickupsEnabled()),
+                    Program.normalizeLodgingType(prog.getLodgingType())
                 )).orElse(null);
         }
 
@@ -398,7 +405,7 @@ public class ParticipantController {
     }
 
     private CoordinatorDto toCoordinatorDto(String name, String phone, String whatsapp) {
-        if (name == null) return null;
+        if (name == null || name.isBlank()) return null;
         return new CoordinatorDto(
             name,
             phone != null ? phone : "",

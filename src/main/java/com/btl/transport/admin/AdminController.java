@@ -2,6 +2,7 @@ package com.btl.transport.admin;
 
 import com.btl.transport.common.BtlCodeService;
 import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramDates;
 import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.room.AccommodationContact;
 import com.btl.transport.room.AccommodationContactRepository;
@@ -708,7 +709,8 @@ public class AdminController {
             .orElseGet(() -> Flight.builder()
                 .participant(p)
                 .direction(dir)
-                .airportCode("IND")
+                .airportCode(ProgramDates.airportCode(
+                    p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null))
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .delayMins(0)
                 .createdAt(OffsetDateTime.now())
@@ -719,20 +721,18 @@ public class AdminController {
         flight.setSubmittedDatetime(dt);
         flight.setUpdatedAt(OffsetDateTime.now());
 
+        Program prog = p.getProgramId() != null
+            ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+
         if (dir == Direction.TO_HOTEL) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            boolean polling = isWithinPollingWindow(config, dt.toLocalDate());
-            flight.setPollingActive(polling);
+            flight.setPollingActive(ProgramDates.isTrackable(prog, dt.toLocalDate(), OffsetDateTime.now()));
         }
 
         if (dir == Direction.TO_AIRPORT) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            Program prog = p.getProgramId() != null
-                ? programRepository.findById(p.getProgramId()).orElse(null) : null;
-            ZoneId zone = programZone(prog);
-            LocalTime departTime = dt.atZoneSameInstant(zone).toLocalTime();
-            LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
-            flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, p.getHotel(), defaultCutoff));
+            LocalTime departTime = dt.atZoneSameInstant(programZone(prog)).toLocalTime();
+            LocalTime venueCutoff = ProgramDates.venueDepartureCutoff(prog);
+            flight.setLeg4PickupFrom(venueCutoff == null ? null
+                : leg4Calculator.calculate(departTime, p.getHotel(), venueCutoff));
         }
 
         flightRepository.save(flight);
@@ -749,14 +749,6 @@ public class AdminController {
             try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
         }
         return ZoneId.of("America/New_York");
-    }
-
-    private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {
-        if (config == null) return false;
-        LocalDate startDate = config.getPollingStartAsLocalDate();
-        OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
-        if (startDate == null || endDatetime == null) return false;
-        return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
     }
 
     @Operation(summary = "Delete participant", description = "Permanently deletes a participant. If their run becomes empty the run is also deleted; otherwise only their seat is freed.")
@@ -884,9 +876,17 @@ public class AdminController {
     @Transactional
     public ResponseEntity<Map<String, Object>> syncAirportRuns(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
-        int groupingWindowMins = airportConfigRepository.findByConfigKey("main")
+        Program syncProgram = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        // The program's own grouping window (set at creation), else the global default.
+        int globalWindow = airportConfigRepository.findByConfigKey("main")
             .map(c -> c.getGroupingWindowMins() != null ? c.getGroupingWindowMins() : 90)
             .orElse(90);
+        int groupingWindowMins = globalWindow;
+        if (syncProgram != null && syncProgram.getRuleWindow() != null) {
+            try { groupingWindowMins = Integer.parseInt(syncProgram.getRuleWindow().trim()); }
+            catch (NumberFormatException ignored) { /* keep global default */ }
+        }
+        String airportLabel = ProgramDates.airportLabel(syncProgram);
 
         int arrivalRunsCreated = 0;
         int departureRunsCreated = 0;
@@ -1006,9 +1006,9 @@ public class AdminController {
                 if (dropoffLocation.isBlank()) dropoffLocation = "Hotel";
 
                 String pickupLocation = direction == Direction.TO_HOTEL
-                    ? "Indianapolis Airport"
+                    ? airportLabel
                     : (dropoffLocation.isBlank() ? "Hotel" : dropoffLocation);
-                String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : "Indianapolis Airport";
+                String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : airportLabel;
 
                 Run run = Run.builder()
                     .runId("RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase())
@@ -1256,7 +1256,9 @@ public class AdminController {
             return ResponseEntity.ok(new AdminDtos.ManifestSendResponse(true, false, "no_runs"));
         }
         StringBuilder manifest = new StringBuilder();
-        manifest.append("BTL 2026 — Manifest for ").append(driver.getName()).append("\n\n");
+        manifest.append(com.btl.transport.notification.ProgramBranding.of(
+                driver.getProgramId() != null ? programRepository.findById(driver.getProgramId()).orElse(null) : null)
+            .subject("Manifest for " + driver.getName())).append("\n\n");
         for (Run run : runs) {
             manifest.append(run.getConferenceDate()).append(" ").append(run.getDepartTime())
                     .append(" | ").append(run.getDirection() != null
@@ -1345,15 +1347,17 @@ public class AdminController {
     @GetMapping("/config/notifications")
     public ResponseEntity<AdminDtos.NotificationConfigResponse> getNotificationConfig(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
-        NotificationConfig c = programId != null
-            ? notificationConfigRepository.findByProgramId(programId)
-                .orElseGet(() -> notificationConfigRepository.findByConfigKey("main").orElse(null))
-            : notificationConfigRepository.findByConfigKey("main").orElse(null);
+        NotificationConfig own = programId != null
+            ? notificationConfigRepository.findByProgramId(programId).orElse(null)
+            : null;
+        NotificationConfig c = own != null ? own : notificationConfigRepository.findByConfigKey("main").orElse(null);
         if (c == null) throw new EntityNotFoundException("Notification config not found");
+        // Help contacts are per program: never show the global default's contacts as a program's own.
+        boolean contacts = programId == null || own != null;
         return ResponseEntity.ok(new AdminDtos.NotificationConfigResponse(
-            c.getAdminPhone1(), c.getAdminPhone2(),
-            c.getAdminName1(), c.getAdminName2(),
-            c.getAdminWhatsapp1(), c.getAdminWhatsapp2(),
+            contacts ? c.getAdminPhone1() : null, contacts ? c.getAdminPhone2() : null,
+            contacts ? c.getAdminName1() : null, contacts ? c.getAdminName2() : null,
+            contacts ? c.getAdminWhatsapp1() : null, contacts ? c.getAdminWhatsapp2() : null,
             c.getReminderBeforeMins(),
             c.getTemplateRegistration(), c.getTemplatePickupReminder(),
             c.getTemplateShuttleReminder(), c.getTemplateDelayMinor(),
@@ -1616,49 +1620,55 @@ public class AdminController {
     }
 
     private void sendDriverAccessEmail(Driver d, String driverLink) {
+        var brand = com.btl.transport.notification.ProgramBranding.of(
+            d.getProgramId() != null ? programRepository.findById(d.getProgramId()).orElse(null) : null);
         String plain = "Hi " + d.getName() + ",\n\n"
-            + "You have been added as a volunteer driver for Built to Last 2026.\n\n"
+            + "You have been added as a volunteer driver for " + brand.nameOrGeneric() + ".\n\n"
             + "Open your driver app here:\n" + driverLink + "\n\n"
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
-            + "Built to Last 2026 Transport Team";
+            + brand.teamName();
         try {
             ClassPathResource res =
                 new ClassPathResource("templates/email-driver-access.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", d.getName())
+                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(d.getName()))
                 .replace("{{driver_link}}", driverLink);
-            sendGridService.sendHtmlEmail(d.getEmail(), d.getName(), "Your Driver App Access", html, plain);
+            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
+            sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), html, plain);
         } catch (IOException e) {
             log.warn("Driver email HTML template not found, falling back to plain text");
-            sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", plain);
+            sendGridService.sendEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), plain);
         }
     }
 
-    private void sendAdminWelcomeEmail(AdminUser u, String plainPassword) {
+    private void sendAdminWelcomeEmail(AdminUser u, String plainPassword, String programId) {
+        var brand = com.btl.transport.notification.ProgramBranding.of(
+            programId != null ? programRepository.findById(programId).orElse(null) : null);
         String displayName = u.getDisplayName() != null ? u.getDisplayName() : u.getUsername();
         String roleLabel   = "ACCOMMODATION".equals(u.getRole()) ? "Accommodation Admin" : "Full Access";
         String loginUrl    = frontendBaseUrl + "/admin/login";
         String plain = "Hi " + displayName + ",\n\n"
-            + "An admin account has been created for you on the Built to Last 2026 transport system.\n\n"
+            + "An admin account has been created for you for " + brand.nameOrGeneric() + ".\n\n"
             + "Username: " + u.getUsername() + "\n"
             + "Password: " + plainPassword + "\n"
             + "Role: " + roleLabel + "\n\n"
             + "Sign in here: " + loginUrl + "\n\n"
             + "Please change your password after your first sign-in (available in the sidebar).\n\n"
-            + "Built to Last 2026 Transport Team";
+            + brand.teamName();
         try {
             ClassPathResource res =
                 new ClassPathResource("templates/email-admin-welcome.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", displayName)
-                .replace("{{username}}", u.getUsername())
+                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(displayName))
+                .replace("{{username}}", com.btl.transport.notification.ProgramBranding.escape(u.getUsername()))
                 .replace("{{password}}", plainPassword)
                 .replace("{{role}}", roleLabel)
                 .replace("{{login_url}}", loginUrl);
-            sendGridService.sendHtmlEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", html, plain);
+            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
+            sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), html, plain);
         } catch (IOException e) {
             log.warn("Admin welcome email HTML template not found, falling back to plain text");
-            sendGridService.sendEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", plain);
+            sendGridService.sendEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), plain);
         }
     }
 
@@ -1758,7 +1768,7 @@ public class AdminController {
             .adminUserId(user.getId()).programId(programId).role(user.getRole()).build());
         if (user.getEmail() != null && !user.getEmail().isBlank()) {
             try {
-                sendAdminWelcomeEmail(user, req.password());
+                sendAdminWelcomeEmail(user, req.password(), programId);
             } catch (Exception e) {
                 log.warn("Failed to send admin welcome email to {}", user.getEmail(), e);
             }
@@ -2260,7 +2270,7 @@ public class AdminController {
                     notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
                         room.getRoomLabel(), room.getRoomType(), others);
                 } else {
-                    notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+                    notificationService.sendRoomAssignment(room.getProgramId(), occ.getName(), email, room.getHotelName(),
                         room.getRoomLabel(), room.getRoomType(), others);
                 }
                 sent++;
@@ -2326,7 +2336,7 @@ public class AdminController {
             notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
                 room.getRoomLabel(), room.getRoomType(), others);
         } else {
-            notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+            notificationService.sendRoomAssignment(room.getProgramId(), occ.getName(), email, room.getHotelName(),
                 room.getRoomLabel(), room.getRoomType(), others);
         }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -2559,6 +2569,9 @@ public class AdminController {
             .state(req.state())
             .logoUrl(req.logoUrl())
             .hotelSelectionEnabled(req.hotelSelectionEnabled() != null ? req.hotelSelectionEnabled() : true)
+            .dailyShuttleEnabled(!Boolean.FALSE.equals(req.dailyShuttleEnabled()))
+            .airportPickupsEnabled(!Boolean.FALSE.equals(req.airportPickupsEnabled()))
+            .lodgingType(Program.normalizeLodgingType(req.lodgingType()))
             .timezone(req.timezone() != null ? req.timezone() : "America/New_York")
             .registrationOpen(true)
             .hotels(toJsonString(req.hotels()))
@@ -2608,6 +2621,17 @@ public class AdminController {
         if (req.state()     != null) p.setState(req.state());
         if (req.logoUrl()   != null) p.setLogoUrl(req.logoUrl());
         if (req.hotelSelectionEnabled() != null) p.setHotelSelectionEnabled(req.hotelSelectionEnabled());
+        if (req.dailyShuttleEnabled()   != null) p.setDailyShuttleEnabled(req.dailyShuttleEnabled());
+        if (req.airportPickupsEnabled() != null) p.setAirportPickupsEnabled(req.airportPickupsEnabled());
+        if (req.lodgingType()           != null) p.setLodgingType(Program.normalizeLodgingType(req.lodgingType()));
+        if (req.venueDepartureRule()    != null) p.setVenueDepartureRule(req.venueDepartureRule());
+        if (req.venueDepartureCutoff()  != null) {
+            if (ProgramDates.parseTime(req.venueDepartureCutoff()) == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cutoff must be a time like 10:30");
+            }
+            p.setVenueDepartureCutoff(ProgramDates.parseTime(req.venueDepartureCutoff())
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")));
+        }
         if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
         if (req.regTitle()       != null) p.setRegTitle(req.regTitle().isBlank() ? null : req.regTitle());
         if (req.regDescription() != null) p.setRegDescription(req.regDescription().isBlank() ? null : req.regDescription());
@@ -2669,6 +2693,12 @@ public class AdminController {
             p.getShowNotifyParticipants()   != null ? p.getShowNotifyParticipants()   : true,
             p.getShowExportRecipients()     != null ? p.getShowExportRecipients()     : true,
             p.getBreakoutNumGroups()        != null ? p.getBreakoutNumGroups()        : 7,
+            !Boolean.FALSE.equals(p.getDailyShuttleEnabled()),
+            !Boolean.FALSE.equals(p.getAirportPickupsEnabled()),
+            Program.normalizeLodgingType(p.getLodgingType()),
+            Boolean.TRUE.equals(p.getVenueDepartureRule()),
+            ProgramDates.venueDepartureCutoff(p) != null ? ProgramDates.venueDepartureCutoff(p).toString()
+                : (p.getVenueDepartureCutoff() != null ? p.getVenueDepartureCutoff() : "10:30"),
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
     }

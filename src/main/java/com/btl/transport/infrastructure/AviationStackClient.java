@@ -23,14 +23,18 @@ public class AviationStackClient {
         this.apiKey = apiKey;
     }
 
-    public Optional<AviationStackFlightData> fetchFlight(String flightIata) {
+    /**
+     * @param airportCode the program's airport (IATA); arrivals are matched on arrival airport and
+     *                    departures on departure airport. Null skips the airport filter.
+     */
+    public Optional<AviationStackFlightData> fetchFlight(String flightIata, String airportCode, boolean arrival) {
         try {
             AviationStackResponse response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                     .path("/v1/flights")
                     .queryParam("access_key", apiKey)
                     .queryParam("flight_iata", flightIata)
-                    .queryParam("arr_iata", "IND")
+                    .queryParamIfPresent(arrival ? "arr_iata" : "dep_iata", Optional.ofNullable(airportCode))
                     .build())
                 .retrieve()
                 .onStatus(HttpStatusCode::is4xxClientError, clientResponse -> {

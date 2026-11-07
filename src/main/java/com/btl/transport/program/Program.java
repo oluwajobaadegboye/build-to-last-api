@@ -113,6 +113,41 @@ public class Program {
     @Column(name = "show_export_recipients")
     private Boolean showExportRecipients;
 
+    /** Daily shuttle runs between lodging and venue. Off for e.g. camps within walking distance. */
+    @Column(name = "daily_shuttle_enabled", nullable = false)
+    @Builder.Default
+    private Boolean dailyShuttleEnabled = true;
+
+    /** Airport arrival/departure pickups (and collecting flight details at registration). */
+    @Column(name = "airport_pickups_enabled", nullable = false)
+    @Builder.Default
+    private Boolean airportPickupsEnabled = true;
+
+    /** Where attendees stay: one of {@link #LODGING_TYPES}; drives labels such as "Hotel" vs "Cabin". */
+    @Column(name = "lodging_type", nullable = false, length = 20)
+    @Builder.Default
+    private String lodgingType = "hotel";
+
+    /**
+     * "Leave from the venue" rule for departure pickups: when on, attendees whose flight leaves before
+     * {@link #venueDepartureCutoff} are picked up at the venue instead of their lodging. Off by default.
+     */
+    @Column(name = "venue_departure_rule", nullable = false)
+    @Builder.Default
+    private Boolean venueDepartureRule = false;
+
+    /** "HH:mm"; null → 10:30. Only used when {@link #venueDepartureRule} is on. */
+    @Column(name = "venue_departure_cutoff", length = 5)
+    private String venueDepartureCutoff;
+
+    public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
+
+    /** Normalised lodging type; unknown or blank values fall back to "hotel". */
+    public static String normalizeLodgingType(String raw) {
+        String t = raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
+        return LODGING_TYPES.contains(t) ? t : "hotel";
+    }
+
     @Column(name = "breakout_num_groups")
     @Builder.Default
     private Integer breakoutNumGroups = 7;

@@ -91,7 +91,8 @@ sendgrid:
   api-key: ${SENDGRID_API_KEY}
   # info@theevicta.com
   from-email: ${SENDGRID_FROM_EMAIL:info@theevicta.com}
-  from-name: "BTL 2026 Transport"
+  # Default sender name; emails about a program are sent as that program's name.
+  from-name: ${SENDGRID_FROM_NAME:ProgramHub}
 
 cors:
   allowed-origins: ${FRONTEND_BASE_URL:http://localhost:5173}

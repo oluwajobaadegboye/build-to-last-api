@@ -282,6 +282,11 @@ public final class AdminDtos {
         @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
         @JsonProperty("show_export_recipients") Boolean showExportRecipients,
         @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType,
+        @JsonProperty("venue_departure_rule") Boolean venueDepartureRule,
+        @JsonProperty("venue_departure_cutoff") String venueDepartureCutoff,
         @JsonProperty("created_at") String createdAt
     ) {}
 
@@ -303,7 +308,10 @@ public final class AdminDtos {
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
-        Object rules
+        Object rules,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType
     ) {}
 
     record UpdateProgramRequest(
@@ -328,6 +336,11 @@ public final class AdminDtos {
         @JsonProperty("evening_runs") Object eveningRuns,
         @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
-        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups
+        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType,
+        @JsonProperty("venue_departure_rule") Boolean venueDepartureRule,
+        @JsonProperty("venue_departure_cutoff") String venueDepartureCutoff
     ) {}
 }

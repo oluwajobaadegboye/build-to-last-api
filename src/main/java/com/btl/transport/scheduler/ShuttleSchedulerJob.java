@@ -14,7 +14,8 @@ import java.time.ZonedDateTime;
 /**
  * Generates each program's daily shuttle runs from its morning/evening time templates.
  * Checks hourly; a program's runs for the day are created during the 6 AM hour in that
- * program's own time zone, on days between its start and end dates. Archived programs are skipped.
+ * program's own time zone, on days between its start and end dates. Archived programs and programs
+ * with the daily shuttle turned off are skipped.
  */
 @Component
 @RequiredArgsConstructor
@@ -41,6 +42,7 @@ public class ShuttleSchedulerJob {
     /** Generates today's runs when it is the generation hour in the program's zone. */
     public void generateIfDue(Program program, ZonedDateTime programNow) {
         if ("archived".equalsIgnoreCase(program.getPhase())) return;
+        if (Boolean.FALSE.equals(program.getDailyShuttleEnabled())) return;
         if (programNow.getHour() != GENERATION_HOUR) return;
         runService.generateProgramSlotsForDate(program, programNow.toLocalDate());
     }

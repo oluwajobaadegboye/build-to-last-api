@@ -14,6 +14,7 @@ import com.btl.transport.notification.AirportConfigRepository;
 import com.btl.transport.notification.NotificationService;
 import com.btl.transport.notification.SheetsWebhookService;
 import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramDates;
 import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.room.RoomOccupantRepository;
 import jakarta.transaction.Transactional;
@@ -74,6 +75,13 @@ public class ParticipantService {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
         if (program != null && Boolean.FALSE.equals(program.getRegistrationOpen())) {
             throw new RegistrationClosedException("Registration for this program is currently paused.");
+        }
+        // No flights are recorded while the program doesn't offer airport pickups, whatever the client sends.
+        // (Shuttle opt-in is left as sent: turning the shuttle off only hides it, so attendees who
+        // register meanwhile must still be opted in if it is turned back on.)
+        if (program != null && Boolean.FALSE.equals(program.getAirportPickupsEnabled())) {
+            arrivalFlightNumber = null;   arrivalDatetime = null;
+            departureFlightNumber = null; departureDatetime = null;
         }
 
         Hotel hotel = hotelId != null
@@ -157,11 +165,9 @@ public class ParticipantService {
                 .build());
         }
 
-        AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-
         if (arrivalFlightNumber != null && arrivalDatetime != null) {
             OffsetDateTime arrivalOdt = arrivalDatetime.atOffset(ZoneOffset.UTC);
-            boolean polling = isWithinPollingWindow(config, arrivalDatetime.toLocalDate());
+            boolean polling = ProgramDates.isTrackable(program, arrivalDatetime.toLocalDate(), OffsetDateTime.now());
             Flight arrival = Flight.builder()
                 .participant(participant)
                 .airline(arrivalAirline)
@@ -170,7 +176,7 @@ public class ParticipantService {
                 .submittedDatetime(arrivalOdt)
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(polling)
-                .airportCode("IND")
+                .airportCode(ProgramDates.airportCode(program))
                 .delayMins(0)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
@@ -180,8 +186,9 @@ public class ParticipantService {
 
         if (departureFlightNumber != null && departureDatetime != null) {
             LocalTime departTime = departureDatetime.toLocalTime();
-            LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
-            var leg4From = leg4Calculator.calculate(departTime, hotel, defaultCutoff);
+            // Only programs using the "leave from the venue" rule classify departures.
+            LocalTime venueCutoff = ProgramDates.venueDepartureCutoff(program);
+            var leg4From = venueCutoff == null ? null : leg4Calculator.calculate(departTime, hotel, venueCutoff);
 
             OffsetDateTime departureOdt = departureDatetime.atOffset(ZoneOffset.UTC);
             Flight departure = Flight.builder()
@@ -193,7 +200,7 @@ public class ParticipantService {
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .pollingActive(false)
                 .leg4PickupFrom(leg4From)
-                .airportCode("IND")
+                .airportCode(ProgramDates.airportCode(program))
                 .delayMins(0)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
@@ -231,7 +238,7 @@ public class ParticipantService {
             .orElseGet(() -> Flight.builder()
                 .participant(participant)
                 .direction(dir)
-                .airportCode("IND")
+                .airportCode(ProgramDates.airportCode(participant.getProgramId() != null ? programRepository.findById(participant.getProgramId()).orElse(null) : null))
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .delayMins(0)
                 .createdAt(OffsetDateTime.now())
@@ -242,19 +249,18 @@ public class ParticipantService {
         flight.setSubmittedDatetime(submittedDatetime);
         flight.setUpdatedAt(OffsetDateTime.now());
 
+        Program prog = participant.getProgramId() != null
+            ? programRepository.findById(participant.getProgramId()).orElse(null) : null;
+
         if (dir == Direction.TO_HOTEL) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            boolean polling = isWithinPollingWindow(config, submittedDatetime.toLocalDate());
-            flight.setPollingActive(polling);
+            flight.setPollingActive(ProgramDates.isTrackable(prog, submittedDatetime.toLocalDate(), OffsetDateTime.now()));
         }
 
         if (dir == Direction.TO_AIRPORT) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            Program prog = participant.getProgramId() != null
-                ? programRepository.findById(participant.getProgramId()).orElse(null) : null;
             LocalTime departTime = submittedDatetime.atZoneSameInstant(programZone(prog)).toLocalTime();
-            LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
-            flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, participant.getHotel(), defaultCutoff));
+            LocalTime venueCutoff = ProgramDates.venueDepartureCutoff(prog);
+            flight.setLeg4PickupFrom(venueCutoff == null ? null
+                : leg4Calculator.calculate(departTime, participant.getHotel(), venueCutoff));
         }
 
         participant.setNeedsAttention(false);
@@ -270,14 +276,6 @@ public class ParticipantService {
             try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
         }
         return ZoneId.of("America/New_York");
-    }
-
-    private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {
-        if (config == null) return false;
-        LocalDate startDate = config.getPollingStartAsLocalDate();
-        OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
-        if (startDate == null || endDatetime == null) return false;
-        return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
     }
 
     private int assignNextBreakoutGroup(String programId, int numGroups) {

@@ -128,4 +128,24 @@ class ProgramShuttleGenerationTest {
         job.generateIfDue(p, ZonedDateTime.of(2027, 3, 2, 6, 5, 0, 0, denver));
         verify(service, never()).generateProgramSlotsForDate(p, LocalDate.of(2027, 3, 2));
     }
+
+    @Test
+    void job_skips_programs_with_daily_shuttle_turned_off() {
+        RunService service = mock(RunService.class);
+        ShuttleSchedulerJob job = new ShuttleSchedulerJob(mock(ProgramRepository.class), service);
+        Program p = program("Mar 1, 2027", "Mar 3, 2027");
+        p.setDailyShuttleEnabled(false);
+
+        job.generateIfDue(p, ZonedDateTime.of(2027, 3, 1, 6, 5, 0, 0, ZoneId.of("America/Denver")));
+
+        verify(service, never()).generateProgramSlotsForDate(any(), any());
+    }
+
+    @Test
+    void lodging_type_is_normalised_with_hotel_fallback() {
+        assertThat(Program.normalizeLodgingType(" Cabin ")).isEqualTo("cabin");
+        assertThat(Program.normalizeLodgingType("dorm")).isEqualTo("dorm");
+        assertThat(Program.normalizeLodgingType("castle")).isEqualTo("hotel");
+        assertThat(Program.normalizeLodgingType(null)).isEqualTo("hotel");
+    }
 }

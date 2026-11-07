@@ -122,7 +122,10 @@ public final class ParticipantDtos {
         @JsonProperty("start_date") String startDate,
         @JsonProperty("end_date") String endDate,
         String airport,
-        String venue
+        String venue,
+        @JsonProperty("daily_shuttle_enabled") boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
