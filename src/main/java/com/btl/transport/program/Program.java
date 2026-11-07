@@ -80,6 +80,10 @@ public class Program {
     @Column(name = "logo_url")
     private String logoUrl;
 
+    /** Optional banner/poster image (hero of the landing and registration pages). */
+    @Column(name = "banner_url")
+    private String bannerUrl;
+
     @Column(name = "hotel_selection_enabled")
     private Boolean hotelSelectionEnabled;
 

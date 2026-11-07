@@ -131,6 +131,8 @@ public class ParticipantController {
         resp.put("city", program.getCity() != null ? program.getCity() : "");
         resp.put("state", program.getState() != null ? program.getState() : "");
         resp.put("logo_url", program.getLogoUrl() != null ? storageService.presign(program.getLogoUrl()) : "");
+        resp.put("banner_url", program.getBannerUrl() != null ? storageService.presign(program.getBannerUrl()) : "");
+        resp.put("timezone", program.getTimezone() != null ? program.getTimezone() : "America/New_York");
         resp.put("start_date", program.getStartDate() != null ? program.getStartDate() : "");
         resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
         resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);

@@ -2568,6 +2568,7 @@ public class AdminController {
             .city(req.city())
             .state(req.state())
             .logoUrl(req.logoUrl())
+            .bannerUrl(req.bannerUrl())
             .hotelSelectionEnabled(req.hotelSelectionEnabled() != null ? req.hotelSelectionEnabled() : true)
             .dailyShuttleEnabled(!Boolean.FALSE.equals(req.dailyShuttleEnabled()))
             .airportPickupsEnabled(!Boolean.FALSE.equals(req.airportPickupsEnabled()))
@@ -2620,6 +2621,7 @@ public class AdminController {
         if (req.city()      != null) p.setCity(req.city());
         if (req.state()     != null) p.setState(req.state());
         if (req.logoUrl()   != null) p.setLogoUrl(req.logoUrl());
+        if (req.bannerUrl() != null) p.setBannerUrl(req.bannerUrl().isBlank() ? null : req.bannerUrl());
         if (req.hotelSelectionEnabled() != null) p.setHotelSelectionEnabled(req.hotelSelectionEnabled());
         if (req.dailyShuttleEnabled()   != null) p.setDailyShuttleEnabled(req.dailyShuttleEnabled());
         if (req.airportPickupsEnabled() != null) p.setAirportPickupsEnabled(req.airportPickupsEnabled());
@@ -2673,7 +2675,7 @@ public class AdminController {
             p.getId(), p.getName(), p.getIni(), p.getType(),
             p.getStartDate(), p.getEndDate(), p.getPhase(),
             p.getVenue(), p.getVenueAddr(), p.getAirport(),
-            p.getCity(), p.getState(), p.getLogoUrl(),
+            p.getCity(), p.getState(), p.getLogoUrl(), p.getBannerUrl(),
             p.getHotelSelectionEnabled() != null ? p.getHotelSelectionEnabled() : true,
             p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
             p.getRegTitle(),
