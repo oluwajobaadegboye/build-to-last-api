@@ -53,5 +53,9 @@ public record RegisterRequest(
     String programId,
 
     @Size(max = 2, message = "State must be a 2-letter US state code")
-    String state
+    String state,
+
+    /** Answers to the program's custom questions, keyed by question key. Optional. */
+    @JsonProperty("custom_answers")
+    java.util.Map<String, Object> customAnswers
 ) {}

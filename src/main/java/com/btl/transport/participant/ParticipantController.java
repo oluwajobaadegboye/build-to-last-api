@@ -70,6 +70,7 @@ public class ParticipantController {
     private final NotificationService notificationService;
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
+    private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -118,6 +119,7 @@ public class ParticipantController {
         resp.put("id", program.getId());
         resp.put("name", program.getName());
         resp.put("ini", program.getIni() != null ? program.getIni() : "");
+        resp.put("registration_fields", registrationFieldService.activeFieldDtos(program.getId()));
         resp.put("phase", program.getPhase() != null ? program.getPhase() : "setup");
         resp.put("city", program.getCity() != null ? program.getCity() : "");
         resp.put("state", program.getState() != null ? program.getState() : "");
@@ -187,12 +189,21 @@ public class ParticipantController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
+        // Validate custom answers before anything is written. Programs without questions get null (no change).
+        String answersJson;
+        try {
+            answersJson = registrationFieldService.toJson(
+                registrationFieldService.validate(req.programId(), req.customAnswers(), true));
+        } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", "invalid_answers", "message", "Please check your answers", "fields", e.getErrors()));
+        }
         try {
             Participant p = participantService.register(
                 req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
                 req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
                 req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
-                req.programId(), req.state()
+                req.programId(), req.state(), answersJson
             );
             return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
         } catch (AlreadyRegisteredException e) {

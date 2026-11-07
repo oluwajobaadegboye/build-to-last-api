@@ -107,7 +107,8 @@ public class AdminController {
         @JsonProperty("needs_attention")  Boolean needsAttention,
         @JsonProperty("attention_reason") String attentionReason,
         String notes,
-        @JsonProperty("breakout_group")   Integer breakoutGroup
+        @JsonProperty("breakout_group")   Integer breakoutGroup,
+        @JsonProperty("custom_answers")   Map<String, Object> customAnswers
     ) {}
 
     public record UpdateRunRequest(
@@ -159,6 +160,7 @@ public class AdminController {
     private final BtlCodeService btlCodeService;
     private final AdminAccess adminAccess;
     private final AdminProperties adminProperties;
+    private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
     private final ProgramAdminRepository programAdminRepository;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
@@ -620,6 +622,21 @@ public class AdminController {
         if (req.attentionReason() != null) p.setAttentionReason(req.attentionReason());
         if (req.notes()           != null) p.setNotes(req.notes());
         if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup());
+        if (req.customAnswers()   != null) {
+            // Admin edits: types/options checked, required not enforced. Answers to removed questions are kept.
+            Map<String, Object> merged = new LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));
+            Map<String, Object> validated;
+            try {
+                validated = registrationFieldService.validate(p.getProgramId(), req.customAnswers(), false);
+            } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, String.join("; ", e.getErrors().values()));
+            }
+            for (String key : req.customAnswers().keySet()) {
+                if (validated.containsKey(key)) merged.put(key, validated.get(key));
+                else if (registrationFieldService.isActiveKey(p.getProgramId(), key)) merged.remove(key); // cleared
+            }
+            p.setCustomAnswers(registrationFieldService.toJson(merged));
+        }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -1590,7 +1607,8 @@ public class AdminController {
             toFlightDto(departure, p.getBtlCode()),
             boardedArrival,
             boardedDeparture,
-            p.getBreakoutGroup()
+            p.getBreakoutGroup(),
+            registrationFieldService.parseAnswers(p.getCustomAnswers())
         );
     }
 

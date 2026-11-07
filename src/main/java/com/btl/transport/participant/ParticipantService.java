@@ -56,6 +56,21 @@ public class ParticipantService {
         String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
         String programId, String state
     ) {
+        return register(fullName, phone, email, hotelId, shuttleOptIn,
+            arrivalAirline, arrivalFlightNumber, arrivalDatetime,
+            departureAirline, departureFlightNumber, departureDatetime,
+            programId, state, null);
+    }
+
+    /** @param customAnswersJson already-validated answers JSON, or null to leave answers untouched */
+    @Transactional
+    public Participant register(
+        String fullName, String phone, String email,
+        Integer hotelId, boolean shuttleOptIn,
+        String arrivalAirline, String arrivalFlightNumber, LocalDateTime arrivalDatetime,
+        String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
+        String programId, String state, String customAnswersJson
+    ) {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
         if (program != null && Boolean.FALSE.equals(program.getRegistrationOpen())) {
             throw new RegistrationClosedException("Registration for this program is currently paused.");
@@ -81,6 +96,7 @@ public class ParticipantService {
                 stub.setShuttleOptIn(shuttleOptIn);
                 stub.setHotel(hotel);
                 stub.setState(state);
+                if (customAnswersJson != null) stub.setCustomAnswers(customAnswersJson);
                 stub.setStatus(ParticipantStatus.REGISTERED);
                 stub.setNeedsAttention(false);
                 stub.setUpdatedAt(OffsetDateTime.now());
@@ -102,6 +118,7 @@ public class ParticipantService {
                     .hotel(hotel)
                     .programId(programId)
                     .state(state)
+                    .customAnswers(customAnswersJson)
                     .breakoutGroup(numGroups > 0 ? assignNextBreakoutGroup(programId, numGroups) : null)
                     .createdAt(OffsetDateTime.now())
                     .updatedAt(OffsetDateTime.now())

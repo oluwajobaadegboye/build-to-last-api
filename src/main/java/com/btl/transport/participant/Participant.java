@@ -50,6 +50,10 @@ public class Participant {
     @Column(name = "notes")
     private String notes;
 
+    /** JSON object of answers to the program's custom registration questions, keyed by field key. */
+    @Column(name = "custom_answers")
+    private String customAnswers;
+
     @Column(name = "attention_reason")
     private String attentionReason;
 

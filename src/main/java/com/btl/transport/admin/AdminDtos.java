@@ -60,7 +60,8 @@ public final class AdminDtos {
         @JsonProperty("flight_departure")  FlightAdminDto flightDeparture,
         @JsonProperty("boarded_arrival")   boolean boardedArrival,
         @JsonProperty("boarded_departure") boolean boardedDeparture,
-        @JsonProperty("breakout_group")    Integer breakoutGroup
+        @JsonProperty("breakout_group")    Integer breakoutGroup,
+        @JsonProperty("custom_answers")    java.util.Map<String, Object> customAnswers
     ) {}
 
     record VehicleAdminDto(
