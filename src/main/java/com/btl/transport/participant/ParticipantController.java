@@ -282,7 +282,8 @@ public class ParticipantController {
                 .map(prog -> new ProgramInfoDto(
                     prog.getId(), prog.getName(), prog.getIni(),
                     prog.getCity(), prog.getState(), prog.getLogoUrl(),
-                    prog.getStartDate(), prog.getEndDate()
+                    prog.getStartDate(), prog.getEndDate(),
+                    prog.getAirport(), prog.getVenue()
                 )).orElse(null);
         }
 

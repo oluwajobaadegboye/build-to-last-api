@@ -995,13 +995,7 @@ public class AdminController {
 
                 LocalDate conferenceDate = group.get(0).getSubmittedDatetime().toLocalDate();
 
-                ConferenceDay conferenceDay = switch (conferenceDate.getDayOfWeek()) {
-                    case THURSDAY -> ConferenceDay.THURSDAY;
-                    case FRIDAY   -> ConferenceDay.FRIDAY;
-                    case SATURDAY -> ConferenceDay.SATURDAY;
-                    case SUNDAY   -> ConferenceDay.SUNDAY;
-                    default       -> null;
-                };
+                ConferenceDay conferenceDay = ConferenceDay.of(conferenceDate.getDayOfWeek());
 
                 String dropoffLocation = group.stream()
                     .map(f -> f.getParticipant().getHotel())

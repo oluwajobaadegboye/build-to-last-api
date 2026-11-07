@@ -12,6 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramDates;
+import com.btl.transport.program.ProgramRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -23,6 +26,7 @@ import java.util.*;
 public class RunController {
 
     private final RunRepository runRepository;
+    private final ProgramRepository programRepository;
     private final RunService runService;
     private final HotelRepository hotelRepository;
 
@@ -48,17 +52,37 @@ public class RunController {
             schedule.put(dayKey, dayMap);
         }
 
+        // Same runs keyed by actual date ("2027-03-01"). Weekday keys above merge repeated weekdays
+        // in programs longer than a week; clients should prefer this map.
+        Map<String, Map<String, List<Map<String, Object>>>> scheduleByDate = new TreeMap<>();
+
         for (Run r : allRuns) {
-            if (r.getConferenceDay() == null || r.getDirection() == null) continue;
-            String dayKey = r.getConferenceDay().name().toLowerCase();
+            if (r.getDirection() == null) continue;
             String dirKey = r.getDirection().name().toLowerCase();
-            schedule.getOrDefault(dayKey, Map.of())
-                .getOrDefault(dirKey, new ArrayList<>())
-                .add(runToMap(r));
+            Map<String, Object> runMap = runToMap(r);
+            if (r.getConferenceDay() != null) {
+                schedule.getOrDefault(r.getConferenceDay().name().toLowerCase(), Map.of())
+                    .getOrDefault(dirKey, new ArrayList<>())
+                    .add(runMap);
+            }
+            if (r.getConferenceDate() != null) {
+                scheduleByDate.computeIfAbsent(r.getConferenceDate().toString(), k -> {
+                        Map<String, List<Map<String, Object>>> m = new LinkedHashMap<>();
+                        m.put("to_church", new ArrayList<>());
+                        m.put("to_hotel", new ArrayList<>());
+                        m.put("to_airport", new ArrayList<>());
+                        return m;
+                    })
+                    .computeIfAbsent(dirKey, k -> new ArrayList<>())
+                    .add(runMap);
+            }
         }
 
-        // Find next departure from now
-        OffsetDateTime now = OffsetDateTime.now(ZoneId.of("America/Indiana/Indianapolis"));
+        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+
+        // Find next departure from now, in the program's own time zone
+        ZoneId zone = program != null ? ProgramDates.zone(program) : ZoneId.of("America/New_York");
+        OffsetDateTime now = OffsetDateTime.now(zone);
         Run next = findNextDeparture(allRuns, now);
 
         Map<String, Object> nextDep = null;
@@ -85,12 +109,13 @@ public class RunController {
         result.put("generated_at", OffsetDateTime.now().toString());
         result.put("next_departure", nextDep);
         result.put("schedule", schedule);
+        result.put("schedule_by_date", scheduleByDate);
         result.put("stop_order", stopOrder);
-        result.put("meta", Map.of(
-            "conference_start", "2026-06-11",
-            "conference_end", "2026-06-14",
-            "airport", "IND"
-        ));
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("conference_start", program != null && program.getStartDate() != null ? program.getStartDate() : "");
+        meta.put("conference_end", program != null && program.getEndDate() != null ? program.getEndDate() : "");
+        meta.put("airport", program != null && program.getAirport() != null ? program.getAirport() : "");
+        result.put("meta", meta);
 
         return ResponseEntity.ok(result);
     }

@@ -120,7 +120,9 @@ public final class ParticipantDtos {
         String state,
         @JsonProperty("logo_url") String logoUrl,
         @JsonProperty("start_date") String startDate,
-        @JsonProperty("end_date") String endDate
+        @JsonProperty("end_date") String endDate,
+        String airport,
+        String venue
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -32,6 +32,9 @@ public interface RunRepository extends JpaRepository<Run, Integer> {
 
     boolean existsByConferenceDateAndDepartTimeAndDirection(LocalDate date, String departTime, Direction direction);
 
+    boolean existsByProgramIdAndConferenceDateAndDirectionAndRunType(
+        String programId, LocalDate date, Direction direction, com.btl.transport.common.enums.RunType runType);
+
     @Query("""
         SELECT r FROM Run r
         WHERE r.status = com.btl.transport.common.enums.RunStatusEnum.SCHEDULED
