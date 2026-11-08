@@ -58,6 +58,7 @@ public class ParticipantController {
 
     private final StorageService storageService;
     private final com.btl.transport.souvenir.SouvenirService souvenirService;
+    private final com.btl.transport.payment.PaymentService paymentService;
     private final ParticipantService participantService;
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
@@ -139,6 +140,11 @@ public class ParticipantController {
         resp.put("end_date", program.getEndDate() != null ? program.getEndDate() : "");
         resp.put("hotel_selection_enabled", program.getHotelSelectionEnabled() != null ? program.getHotelSelectionEnabled() : true);
         resp.put("registration_open", program.getRegistrationOpen() != null ? program.getRegistrationOpen() : true);
+        // open | paused | closed (past its closing time) | full (capacity reached)
+        String regState = com.btl.transport.program.RegistrationRules.state(
+            program, participantRepository.countByProgramId(program.getId()), OffsetDateTime.now());
+        resp.put("registration_state", regState);
+        resp.put("registration_closes_at", program.getRegistrationClosesAt());
         resp.put("reg_title",       program.getRegTitle());
         resp.put("reg_description", program.getRegDescription());
         resp.put("hotels", hotelList);
@@ -177,7 +183,7 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/resend-code ──────────────────────────────────────────
-    @Operation(summary = "Resend registration code", description = "Re-sends the participant's BTL transport code to their registered email address")
+    @Operation(summary = "Resend registration code", description = "Re-sends the participant's registration code to their registered email address")
     @PostMapping("/resend-code")
     public ResponseEntity<Map<String, Boolean>> resendCode(@RequestBody ResendCodeRequest req) {
         if (req.email() == null || req.programId() == null) {
@@ -193,10 +199,17 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/register ─────────────────────────────────────────────
-    @Operation(summary = "Register participant", description = "Registers a new participant with flight and hotel preferences. Returns a unique BTL code on success")
+    @Operation(summary = "Register participant", description = "Registers a new participant with flight and hotel preferences. Returns a unique registration code on success")
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
+        // Closed / full comes before answer checks, so people aren't asked to fix answers for a closed program.
+        try {
+            participantService.assertRegistrationOpen(
+                req.programId() != null ? programRepository.findById(req.programId()).orElse(null) : null, req.email());
+        } catch (RegistrationClosedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "registration_closed", "message", e.getMessage()));
+        }
         // Validate custom answers before anything is written. Programs without questions get null (no change).
         String answersJson;
         Map<Integer, String> souvenirChoices;
@@ -238,7 +251,7 @@ public class ParticipantController {
     }
 
     // ── POST /api/v1/update-flight ────────────────────────────────────────
-    @Operation(summary = "Update flight details", description = "Updates arrival or departure flight information for an existing participant by BTL code")
+    @Operation(summary = "Update flight details", description = "Updates arrival or departure flight information for an existing participant by registration code")
     @PostMapping("/update-flight")
     public ResponseEntity<UpdateFlightResponse> updateFlight(@RequestBody UpdateFlightRequest req) {
         participantService.updateFlight(
@@ -248,7 +261,7 @@ public class ParticipantController {
     }
 
     // ── GET /api/v1/participant-status ────────────────────────────────────
-    @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their BTL code")
+    @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their registration code")
     @GetMapping("/participant-status")
     @Transactional(readOnly = true)
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
@@ -322,7 +335,10 @@ public class ParticipantController {
             programInfo,
             roomDto,
             OffsetDateTime.now().toString(),
-            souvenirService.attendeeView(p)
+            souvenirService.attendeeView(p),
+            programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
+                .filter(prog -> Boolean.TRUE.equals(prog.getShowPaymentToAttendees()))
+                .map(prog -> paymentService.attendeeSummary(p)).orElse(null)
         ));
     }
 
@@ -339,7 +355,7 @@ public class ParticipantController {
     ) {}
 
     // ── PATCH /api/v1/participant/{btlCode}/board-run ──────────────────────
-    @Operation(summary = "Self-report boarding", description = "Participant marks themselves as boarded on their active run, identified by BTL code")
+    @Operation(summary = "Self-report boarding", description = "Participant marks themselves as boarded on their active run, identified by registration code")
     @PatchMapping("/participant/{btlCode}/board-run")
     public ResponseEntity<Map<String, Boolean>> selfBoard(
             @PathVariable String btlCode,

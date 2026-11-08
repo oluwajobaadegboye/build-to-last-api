@@ -32,6 +32,7 @@ public class PaymentService {
     private final ParticipantPaymentRepository paymentRepository;
     private final ParticipantRepository participantRepository;
     private final ProgramRepository programRepository;
+    private final com.btl.transport.notification.SendGridService sendGridService;
 
     public static String normalizeStatus(String s) {
         return s != null && STATUSES.contains(s.trim().toLowerCase(Locale.ROOT)) ? s.trim().toLowerCase(Locale.ROOT) : UNPAID;
@@ -76,7 +77,86 @@ public class PaymentService {
         }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
-        return summary(p);
+        Map<String, Object> out = summary(p);
+        sendReceipt(p, amount, out);
+        return out;
+    }
+
+    // ── Visibility & attendee emails ───────────────────────────────────────
+
+    /** Full and Payments admins always see amounts; Registrations-only admins only if the program allows it. */
+    public static boolean canSeeAmounts(Program prog, Set<String> perms) {
+        if (perms.contains(com.btl.transport.admin.AdminPermissions.FULL) || perms.contains(com.btl.transport.admin.AdminPermissions.PAYMENTS)) return true;
+        return prog == null || !Boolean.FALSE.equals(prog.getRegistrationsSeeAmounts());
+    }
+
+    /** Summary with money removed (status only). */
+    public static Map<String, Object> withoutAmounts(Map<String, Object> summary) {
+        Map<String, Object> out = new LinkedHashMap<>(summary);
+        out.put("total_paid", null);
+        out.put("fee", null);
+        out.put("balance", null);
+        out.put("payments", List.of());
+        out.put("amounts_hidden", true);
+        return out;
+    }
+
+    /** What an attendee sees when the program shows payment status (no ledger, no admin names). */
+    public Map<String, Object> attendeeSummary(Participant p) {
+        Map<String, Object> s = summary(p);
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String k : List.of("status", "total_paid", "fee", "currency", "balance")) out.put(k, s.get(k));
+        return out;
+    }
+
+    private static String money(Object amount, Object currency) {
+        BigDecimal n = amount instanceof BigDecimal b ? b : BigDecimal.ZERO;
+        return currency + " " + n.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private void sendReceipt(Participant p, BigDecimal amount, Map<String, Object> summary) {
+        Program prog = programOf(p);
+        if (prog == null || !Boolean.TRUE.equals(prog.getPaymentEmailsEnabled()) || p.getEmail() == null || p.getEmail().isBlank()) return;
+        var brand = com.btl.transport.notification.ProgramBranding.of(prog);
+        Object cur = summary.get("currency");
+        StringBuilder body = new StringBuilder("Hi ").append(p.getFullName()).append(",\n\n")
+            .append("We've received your payment of ").append(money(amount, cur)).append(" for ").append(brand.nameOrGeneric()).append(".\n\n")
+            .append("Total paid: ").append(money(summary.get("total_paid"), cur)).append("\n");
+        if (summary.get("fee") != null) body.append("Balance: ").append(money(summary.get("balance"), cur)).append("\n");
+        body.append("Status: ").append(label(String.valueOf(summary.get("status")))).append("\n\n")
+            .append("Your registration code: ").append(p.getBtlCode()).append("\n\n").append(brand.teamName());
+        sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment received"), body.toString());
+    }
+
+    private static String label(String status) {
+        return switch (status) { case PAID -> "Paid in full"; case PARTIAL -> "Part paid"; default -> "Unpaid"; };
+    }
+
+    /** Emails a reminder to everyone in the program whose status is in {@code statuses}; returns how many were sent. */
+    @Transactional(readOnly = true)
+    public int sendReminders(String programId, Collection<String> statuses) {
+        Program prog = programRepository.findById(programId).orElse(null);
+        if (prog == null || !Boolean.TRUE.equals(prog.getPaymentEmailsEnabled())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Turn on payment emails for this program first");
+        }
+        Set<String> wanted = new HashSet<>();
+        for (String s : statuses == null || statuses.isEmpty() ? List.of(UNPAID, PARTIAL) : statuses) wanted.add(normalizeStatus(s));
+        wanted.remove(PAID);
+        var brand = com.btl.transport.notification.ProgramBranding.of(prog);
+        int sent = 0;
+        for (Participant p : participantRepository.findAllByProgramIdWithHotel(programId)) {
+            if (!wanted.contains(normalizeStatus(p.getPaymentStatus())) || p.getEmail() == null || p.getEmail().isBlank()) continue;
+            Map<String, Object> s = summary(p);
+            Object cur = s.get("currency");
+            StringBuilder body = new StringBuilder("Hi ").append(p.getFullName()).append(",\n\n")
+                .append("This is a friendly reminder about your payment for ").append(brand.nameOrGeneric()).append(".\n\n")
+                .append("Paid so far: ").append(money(s.get("total_paid"), cur)).append("\n");
+            if (s.get("fee") != null) body.append("Balance due: ").append(money(s.get("balance"), cur)).append("\n");
+            body.append("\nIf you've already paid, please ignore this message.\n\n").append(brand.teamName());
+            sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), body.toString());
+            sent++;
+        }
+        return sent;
     }
 
     @Transactional

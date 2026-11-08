@@ -55,6 +55,13 @@ public class Participant {
     @Builder.Default
     private String paymentStatus = "unpaid";
 
+    /** Venue check-in. */
+    @Column(name = "checked_in_at")
+    private OffsetDateTime checkedInAt;
+
+    @Column(name = "checked_in_by")
+    private String checkedInBy;
+
     /** JSON object of answers to the program's custom registration questions, keyed by field key. */
     @Column(name = "custom_answers")
     private String customAnswers;

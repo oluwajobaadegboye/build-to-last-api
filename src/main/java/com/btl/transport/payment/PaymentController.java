@@ -3,6 +3,7 @@ package com.btl.transport.payment;
 import com.btl.transport.admin.AdminAccess;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
+import com.btl.transport.program.Program;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class PaymentController {
     private final ParticipantRepository participantRepository;
     private final PaymentService paymentService;
     private final AdminAccess adminAccess;
+    private final com.btl.transport.program.ProgramRepository programRepository;
 
     public record RecordPaymentRequest(BigDecimal amount, String note, String status) {}
     public record StatusRequest(String status) {}
@@ -37,7 +39,10 @@ public class PaymentController {
     @Operation(summary = "Payment summary", description = "Status, total paid, fee/balance and every recorded payment")
     @GetMapping("/payments")
     public Map<String, Object> summary(@PathVariable String code) {
-        return paymentService.summary(load(code));
+        Participant p = load(code);
+        Map<String, Object> s = paymentService.summary(p);
+        Program prog = programRepository.findById(p.getProgramId()).orElse(null);
+        return PaymentService.canSeeAmounts(prog, adminAccess.permissions()) ? s : PaymentService.withoutAmounts(s);
     }
 
     @Operation(summary = "Record a payment", description = "Body: { amount, note?, status? } — status (partial|paid) is used only when the program has no fee")

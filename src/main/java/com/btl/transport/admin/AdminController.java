@@ -263,7 +263,7 @@ public class AdminController {
         ));
     }
 
-    @Operation(summary = "Get participant", description = "Returns a single participant summary by BTL code")
+    @Operation(summary = "Get participant", description = "Returns a single participant summary by registration code")
     @GetMapping("/participants/{btlCode}")
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
@@ -327,7 +327,7 @@ public class AdminController {
         return ResponseEntity.ok(alerts);
     }
 
-    @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by BTL code")
+    @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by registration code")
     @PostMapping("/alerts/{btlCode}/resolve")
     public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
@@ -514,7 +514,7 @@ public class AdminController {
     }
 
     // ── Resend code ──────────────────────────────────────────────────────────
-    @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the BTL code email for a participant, initiated by an admin")
+    @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the registration code email for a participant, initiated by an admin")
     @PostMapping("/participants/{btlCode}/resend-code")
     public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
@@ -596,7 +596,7 @@ public class AdminController {
 
     // ── Participant (singular path) ────────────────────────────────────────
 
-    @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by BTL code")
+    @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by registration code")
     @GetMapping("/participant/{code}")
     @Transactional(readOnly = true)
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> getParticipantDetail(
@@ -612,7 +612,7 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
-    @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by BTL code")
+    @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by registration code")
     @PatchMapping("/participant/{code}")
     @Transactional
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipant(
@@ -804,7 +804,7 @@ public class AdminController {
 
     // ── Alert (singular path alias) ────────────────────────────────────────
 
-    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given BTL code")
+    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given registration code")
     @PostMapping("/alert/{btlCode}/resolve")
     public ResponseEntity<AdminDtos.SuccessResponse> resolveAlertSingular(
             @PathVariable String btlCode) {
@@ -1600,6 +1600,17 @@ public class AdminController {
         );
     }
 
+    /** Whether the caller may see payment amounts for this program (cached for the request). */
+    private boolean amountsVisible(String programId) {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        String key = "btl.amountsVisible." + programId;
+        if (attrs != null && attrs.getAttribute(key, 0) instanceof Boolean b) return b;
+        Program prog = programId == null ? null : programRepository.findById(programId).orElse(null);
+        boolean v = com.btl.transport.payment.PaymentService.canSeeAmounts(prog, adminAccess.permissions());
+        if (attrs != null) attrs.setAttribute(key, v, 0);
+        return v;
+    }
+
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure) {
         return toParticipantAdminResponse(p, arrival, departure, false, false);
@@ -1621,7 +1632,7 @@ public class AdminController {
             p.getBreakoutGroup(),
             registrationFieldService.parseAnswers(p.getCustomAnswers()),
             com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus()),
-            participantPaymentRepository.totalForParticipant(p.getId())
+            amountsVisible(p.getProgramId()) ? participantPaymentRepository.totalForParticipant(p.getId()) : null
         );
     }
 

@@ -39,6 +39,8 @@ public class ParticipantExportController {
     private final PaymentService paymentService;
     private final SouvenirItemRepository souvenirItemRepository;
     private final SouvenirService souvenirService;
+    private final com.btl.transport.admin.AdminAccess adminAccess;
+    private final com.btl.transport.program.ProgramRepository programRepository;
 
     @Operation(summary = "Export participants CSV", description = "All participants of the X-Program-Id program, including custom question answers")
     @GetMapping(value = "/export.csv")
@@ -48,7 +50,9 @@ public class ParticipantExportController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No program selected");
         }
         List<Participant> participants = participantRepository.findAllByProgramIdWithHotel(programId);
-        Map<Integer, java.math.BigDecimal> paidTotals = paymentService.totals(participants.stream().map(Participant::getId).toList());
+        boolean showAmounts = PaymentService.canSeeAmounts(programRepository.findById(programId).orElse(null), adminAccess.permissions());
+        Map<Integer, java.math.BigDecimal> paidTotals = showAmounts
+            ? paymentService.totals(participants.stream().map(Participant::getId).toList()) : Map.of();
         List<RegistrationField> fields = fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId);
         List<SouvenirItem> souvenirs = souvenirItemRepository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId);
         Map<Integer, Map<Integer, ParticipantSouvenir>> souvenirRecords = souvenirs.isEmpty() ? Map.of() : souvenirService.recordsForProgram(programId);
@@ -89,7 +93,7 @@ public class ParticipantExportController {
                 p.getCreatedAt() != null ? p.getCreatedAt().toString() : "",
                 switch (PaymentService.normalizeStatus(p.getPaymentStatus())) {
                     case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; },
-                paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO).toPlainString()));
+                showAmounts ? paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO).toPlainString() : ""));
             for (RegistrationField f : fields) r.add(answerText(answers.get(f.getFieldKey())));
             Map<Integer, ParticipantSouvenir> mine = souvenirRecords.getOrDefault(p.getId(), Map.of());
             for (SouvenirItem item : souvenirs) {

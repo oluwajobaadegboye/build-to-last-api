@@ -63,6 +63,20 @@ public class ParticipantService {
             programId, state, null);
     }
 
+    /**
+     * Throws when the program isn't taking registrations (paused, past its closing time, or full).
+     * People already on the list (e.g. imported for rooms) can still complete their registration when it's full.
+     */
+    public void assertRegistrationOpen(Program program, String email) {
+        if (program == null) return;
+        String regState = com.btl.transport.program.RegistrationRules.state(
+            program, participantRepository.countByProgramId(program.getId()), OffsetDateTime.now());
+        if (regState.equals(com.btl.transport.program.RegistrationRules.OPEN)) return;
+        boolean alreadyListed = email != null && participantRepository.findByEmailIgnoreCaseAndProgramId(email, program.getId()).isPresent();
+        if (regState.equals(com.btl.transport.program.RegistrationRules.FULL) && alreadyListed) return;
+        throw new RegistrationClosedException(com.btl.transport.program.RegistrationRules.message(regState));
+    }
+
     /** @param customAnswersJson already-validated answers JSON, or null to leave answers untouched */
     @Transactional
     public Participant register(
@@ -73,9 +87,7 @@ public class ParticipantService {
         String programId, String state, String customAnswersJson
     ) {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
-        if (program != null && Boolean.FALSE.equals(program.getRegistrationOpen())) {
-            throw new RegistrationClosedException("Registration for this program is currently paused.");
-        }
+        assertRegistrationOpen(program, email);
         // No flights are recorded while the program doesn't offer airport pickups, whatever the client sends.
         // (Shuttle opt-in is left as sent: turning the shuttle off only hides it, so attendees who
         // register meanwhile must still be opted in if it is turned back on.)

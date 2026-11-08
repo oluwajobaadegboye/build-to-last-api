@@ -24,8 +24,10 @@ public final class AdminPermissions {
     public static final String ACCOMMODATION = "ACCOMMODATION";
     /** Manage souvenir items, attendees' sizes and who has received what. */
     public static final String SOUVENIRS = "SOUVENIRS";
+    /** Venue check-in desk: find people and mark them arrived. */
+    public static final String CHECKIN = "CHECKIN";
 
-    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS);
+    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN);
 
     /** "REGISTRATIONS, payments" → {REGISTRATIONS, PAYMENTS}; unknown values dropped; FULL absorbs the rest. */
     public static Set<String> parse(String stored) {
@@ -61,6 +63,7 @@ public final class AdminPermissions {
                 case PAYMENTS -> "Payments";
                 case ACCOMMODATION -> "Accommodation";
                 case SOUVENIRS -> "Souvenirs";
+                case CHECKIN -> "Check-in";
                 default -> p;
             });
         }
@@ -95,7 +98,14 @@ public final class AdminPermissions {
         new Rule("GET", Pattern.compile(P + "/hotels$"), Set.of(ACCOMMODATION)),
         // Souvenirs: items, the hand-out sheet and per-participant updates
         new Rule("*", Pattern.compile(P + "/souvenirs(/.*)?$"), Set.of(SOUVENIRS)),
-        new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/souvenirs/[^/]+$"), Set.of(SOUVENIRS))
+        new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/souvenirs/[^/]+$"), Set.of(SOUVENIRS)),
+        // Check-in desk
+        new Rule("GET", Pattern.compile(P + "/check-in$"), Set.of(CHECKIN)),
+        new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/check-in$"), Set.of(CHECKIN)),
+        // Payment reminders
+        new Rule("POST", Pattern.compile(P + "/payments/reminders$"), Set.of(PAYMENTS)),
+        // Program overview: every admin sees the parts their permissions cover
+        new Rule("GET", Pattern.compile(P + "/overview$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN))
     );
 
     /** Whether an admin holding {@code perms} may make this request. */

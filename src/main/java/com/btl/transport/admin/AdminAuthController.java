@@ -30,14 +30,47 @@ public class AdminAuthController {
 
     private static final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
 
+    /**
+     * Failed sign-ins are limited per account (10 per 15 minutes), not per network, so people sharing
+     * a venue's Wi-Fi never lock each other out while passwords stay protected from guessing.
+     */
+    static final int MAX_FAILURES = 10;
+    static final java.time.Duration FAILURE_WINDOW = java.time.Duration.ofMinutes(15);
+    private final java.util.Map<String, java.util.Deque<Instant>> failures = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private java.util.Deque<Instant> recentFailures(String username) {
+        java.util.Deque<Instant> q = failures.computeIfAbsent(username, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+        Instant cutoff = Instant.now().minus(FAILURE_WINDOW);
+        while (!q.isEmpty() && q.peekFirst().isBefore(cutoff)) q.pollFirst();
+        return q;
+    }
+
     public record LoginRequest(String username, String password) {}
 
     @Operation(summary = "Admin login", description = "Authenticate with username and password to receive a JWT bearer token")
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest body) {
+        String key = body.username() == null ? "" : body.username().trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.Deque<Instant> recent = recentFailures(key);
+        if (recent.size() >= MAX_FAILURES) {
+            long mins = Math.max(1, java.time.Duration.between(Instant.now(), recent.peekFirst().plus(FAILURE_WINDOW)).toMinutes() + 1);
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of("error", "Too many failed sign-ins for this account — try again in " + mins + " min"));
+        }
+        ResponseEntity<Map<String, Object>> res = attemptLogin(body);
+        if (res.getStatusCode() == HttpStatus.UNAUTHORIZED) recent.addLast(Instant.now());
+        else if (res.getStatusCode().is2xxSuccessful()) failures.remove(key);
+        return res;
+    }
+
+    private ResponseEntity<Map<String, Object>> attemptLogin(LoginRequest body) {
         // 1. Try DB-stored admin user (look up by username alone — no program_id required)
         AdminUser dbUser = adminUserRepository.findByUsernameIgnoreCase(body.username()).orElse(null);
         if (dbUser != null && bcrypt.matches(body.password(), dbUser.getPasswordHash())) {
+            if (Boolean.FALSE.equals(dbUser.getEmailVerified())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "email_not_verified",
+                    "message", "Confirm your email first — we sent a link to " + maskEmail(dbUser.getEmail())));
+            }
             // One program → token scoped to it (lands straight on dashboard); several/none → picker.
             List<ProgramAdmin> memberships = programAdminRepository.findByAdminUserId(dbUser.getId());
             String tokenProgram = memberships.size() == 1 ? memberships.get(0).getProgramId() : null;
@@ -116,5 +149,12 @@ public class AdminAuthController {
         dbUser.setPasswordHash(bcrypt.encode(body.newPassword()));
         adminUserRepository.save(dbUser);
         return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    private static String maskEmail(String email) {
+        if (email == null || !email.contains("@")) return "your email";
+        String[] parts = email.split("@", 2);
+        String name = parts[0];
+        return (name.length() <= 2 ? name.charAt(0) + "*" : name.substring(0, 2) + "***") + "@" + parts[1];
     }
 }

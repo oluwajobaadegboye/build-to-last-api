@@ -84,7 +84,10 @@ public final class ParticipantDtos {
         @JsonProperty("boarded_arrival") boolean boardedArrival,
         @JsonProperty("boarded_departure") boolean boardedDeparture,
         @JsonProperty("breakout_group") Integer breakoutGroup
-    ) {}
+    ) {
+        /** Neutral alias for btl_code (the registration code). */
+        @JsonProperty("code") public String code() { return btlCode; }
+    }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record FlightDto(
@@ -156,6 +159,8 @@ public final class ParticipantDtos {
         @JsonProperty("room") RoomDto room,
         @JsonProperty("generated_at") String generatedAt,
         /** Every active souvenir item: name, the attendee's choice and whether they've collected it. */
-        @JsonProperty("souvenirs") List<Map<String, Object>> souvenirs
+        @JsonProperty("souvenirs") List<Map<String, Object>> souvenirs,
+        /** Status, paid, fee, balance — only when the program shows payment to attendees; else null. */
+        @JsonProperty("payment") Map<String, Object> payment
     ) {}
 }

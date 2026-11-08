@@ -152,6 +152,29 @@ public class Program {
     @Builder.Default
     private String feeCurrency = "USD";
 
+    /** Attendees see their payment status/balance on their status page. */
+    @Column(name = "show_payment_to_attendees", nullable = false)
+    @Builder.Default
+    private Boolean showPaymentToAttendees = false;
+
+    /** Registrations-only admins see amounts (not just paid / part paid / unpaid). */
+    @Column(name = "registrations_see_amounts", nullable = false)
+    @Builder.Default
+    private Boolean registrationsSeeAmounts = true;
+
+    /** Email attendees a receipt when a payment is recorded, and allow payment reminders. */
+    @Column(name = "payment_emails_enabled", nullable = false)
+    @Builder.Default
+    private Boolean paymentEmailsEnabled = false;
+
+    /** Local "YYYY-MM-DDTHH:mm" (program timezone) after which registration closes; null = no date. */
+    @Column(name = "registration_closes_at", length = 16)
+    private String registrationClosesAt;
+
+    /** Registration closes when this many people have registered; null = no limit. */
+    @Column(name = "max_registrations")
+    private Integer maxRegistrations;
+
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 
     /** Normalised lodging type; unknown or blank values fall back to "hotel". */

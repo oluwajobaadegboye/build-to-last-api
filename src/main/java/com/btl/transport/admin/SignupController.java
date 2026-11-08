@@ -28,6 +28,13 @@ public class SignupController {
     private final AdminUserRepository adminUserRepository;
     private final AdminProperties adminProperties;
     private final JwtService jwtService;
+    private final com.btl.transport.notification.SendGridService sendGridService;
+
+    @org.springframework.beans.factory.annotation.Value("${btl.frontend-base-url}")
+    private String frontendBaseUrl;
+
+    private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final java.time.Duration RESEND_GAP = java.time.Duration.ofMinutes(2);
 
     public record SignupRequest(
         String username,
@@ -36,7 +43,7 @@ public class SignupController {
         String email
     ) {}
 
-    @Operation(summary = "Sign up", description = "Creates an admin account with no programs and returns a JWT. The user then creates programs, becoming their owner.")
+    @Operation(summary = "Sign up", description = "Creates an admin account and emails a verification link. The account can sign in (and create programs) once the email is verified.")
     @PostMapping("/signup")
     @Transactional
     public ResponseEntity<Map<String, Object>> signup(@RequestBody SignupRequest req) {
@@ -44,6 +51,10 @@ public class SignupController {
         if (!USERNAME.matcher(username).matches()) {
             return ResponseEntity.badRequest().body(Map.of("error",
                 "Username must be 3–64 characters: letters, numbers, . _ @ -"));
+        }
+        String email = req.email() == null ? "" : req.email().trim();
+        if (!EMAIL.matcher(email).matches()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Enter a valid email — we'll send a link to confirm it"));
         }
         if (req.password() == null || req.password().length() < 8) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters"));
@@ -58,20 +69,72 @@ public class SignupController {
             .username(username)
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(blankToNull(req.displayName()))
-            .email(blankToNull(req.email()))
+            .email(email)
             .role("FULL")
             .createdAt(OffsetDateTime.now())
+            .emailVerified(false)
+            .verificationToken(newToken())
+            .verificationSentAt(OffsetDateTime.now())
             .build();
         try {
             adminUserRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
         }
+        sendVerification(user);
+        return ResponseEntity.ok(Map.of("verification_required", true, "email", email));
+    }
+
+    public record TokenRequest(String token) {}
+    public record ResendRequest(String username) {}
+
+    @Operation(summary = "Verify email", description = "Confirms the address from the emailed link and signs the user in")
+    @PostMapping("/verify-email")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> verify(@RequestBody TokenRequest req) {
+        if (req == null || req.token() == null || req.token().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "This link is incomplete"));
+        }
+        AdminUser user = adminUserRepository.findByVerificationToken(req.token().trim()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "This link has expired or was already used. Try signing in."));
+        }
+        user.setEmailVerified(true);
+        user.setVerificationToken(null);
+        adminUserRepository.save(user);
         String token = jwtService.generateToken(user.getUsername(), null, "FULL");
-        return ResponseEntity.ok(Map.of(
-            "token", token,
-            "expires_at", jwtService.getExpiry(token).toString()
-        ));
+        return ResponseEntity.ok(Map.of("token", token, "expires_at", jwtService.getExpiry(token).toString()));
+    }
+
+    @Operation(summary = "Resend verification email")
+    @PostMapping("/resend-verification")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> resend(@RequestBody ResendRequest req) {
+        // Same answer whether or not the account exists, so usernames can't be probed.
+        Map<String, Object> ok = Map.of("success", true);
+        if (req == null || req.username() == null) return ResponseEntity.ok(ok);
+        adminUserRepository.findByUsernameIgnoreCase(req.username().trim())
+            .filter(u -> Boolean.FALSE.equals(u.getEmailVerified()) && u.getEmail() != null)
+            .filter(u -> u.getVerificationSentAt() == null || u.getVerificationSentAt().isBefore(OffsetDateTime.now().minus(RESEND_GAP)))
+            .ifPresent(u -> {
+                if (u.getVerificationToken() == null) u.setVerificationToken(newToken());
+                u.setVerificationSentAt(OffsetDateTime.now());
+                adminUserRepository.save(u);
+                sendVerification(u);
+            });
+        return ResponseEntity.ok(ok);
+    }
+
+    private static String newToken() {
+        return java.util.UUID.randomUUID().toString().replace("-", "") + java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void sendVerification(AdminUser u) {
+        String link = frontendBaseUrl.replaceAll("/+$", "") + "/verify-email?token=" + u.getVerificationToken();
+        String body = "Hi " + (u.getDisplayName() != null ? u.getDisplayName() : u.getUsername()) + ",\n\n"
+            + "Confirm your email to finish setting up your ProgramHub account:\n\n" + link + "\n\n"
+            + "If you didn't sign up, you can ignore this email.";
+        sendGridService.sendEmail(u.getEmail(), u.getDisplayName(), "Confirm your email", body);
     }
 
     private static String blankToNull(String s) {

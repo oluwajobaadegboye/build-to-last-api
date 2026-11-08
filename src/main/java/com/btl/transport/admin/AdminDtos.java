@@ -64,7 +64,10 @@ public final class AdminDtos {
         @JsonProperty("custom_answers")    java.util.Map<String, Object> customAnswers,
         @JsonProperty("payment_status")    String paymentStatus,
         @JsonProperty("amount_paid")       java.math.BigDecimal amountPaid
-    ) {}
+    ) {
+        /** Neutral alias for btl_code (the registration code). */
+        @JsonProperty("code") public String code() { return btlCode; }
+    }
 
     record VehicleAdminDto(
         @JsonProperty("vehicle_id") String vehicleId,
