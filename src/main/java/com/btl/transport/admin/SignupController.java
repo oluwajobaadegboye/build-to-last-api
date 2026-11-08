@@ -35,6 +35,10 @@ public class SignupController {
 
     private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     private static final java.time.Duration RESEND_GAP = java.time.Duration.ofMinutes(2);
+    /** Verification links stop working after this. */
+    private static final java.time.Duration LINK_LIFETIME = java.time.Duration.ofHours(48);
+    /** Unconfirmed sign-ups older than this give their username back. */
+    private static final java.time.Duration UNVERIFIED_HOLD = java.time.Duration.ofDays(7);
 
     public record SignupRequest(
         String username,
@@ -59,6 +63,11 @@ public class SignupController {
         if (req.password() == null || req.password().length() < 8) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters"));
         }
+        // Free the username if an earlier sign-up never confirmed its email.
+        adminUserRepository.findByUsernameIgnoreCase(username)
+            .filter(u -> Boolean.FALSE.equals(u.getEmailVerified()) && u.getCreatedAt() != null
+                && u.getCreatedAt().isBefore(OffsetDateTime.now().minus(UNVERIFIED_HOLD)))
+            .ifPresent(u -> { adminUserRepository.delete(u); adminUserRepository.flush(); });
         boolean reserved = adminProperties.getUsers().stream()
             .anyMatch(u -> username.equalsIgnoreCase(u.getUsername()));
         if (reserved || adminUserRepository.findAll().stream()
@@ -99,6 +108,9 @@ public class SignupController {
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "This link has expired or was already used. Try signing in."));
         }
+        if (user.getVerificationSentAt() != null && user.getVerificationSentAt().isBefore(OffsetDateTime.now().minus(LINK_LIFETIME))) {
+            return ResponseEntity.status(HttpStatus.GONE).body(Map.of("error", "This link has expired. Sign in to get a new one."));
+        }
         user.setEmailVerified(true);
         user.setVerificationToken(null);
         adminUserRepository.save(user);
@@ -117,7 +129,7 @@ public class SignupController {
             .filter(u -> Boolean.FALSE.equals(u.getEmailVerified()) && u.getEmail() != null)
             .filter(u -> u.getVerificationSentAt() == null || u.getVerificationSentAt().isBefore(OffsetDateTime.now().minus(RESEND_GAP)))
             .ifPresent(u -> {
-                if (u.getVerificationToken() == null) u.setVerificationToken(newToken());
+                u.setVerificationToken(newToken());  // a fresh link each time; older links stop working
                 u.setVerificationSentAt(OffsetDateTime.now());
                 adminUserRepository.save(u);
                 sendVerification(u);

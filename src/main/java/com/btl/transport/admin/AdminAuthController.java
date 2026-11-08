@@ -38,11 +38,26 @@ public class AdminAuthController {
     static final java.time.Duration FAILURE_WINDOW = java.time.Duration.ofMinutes(15);
     private final java.util.Map<String, java.util.Deque<Instant>> failures = new java.util.concurrent.ConcurrentHashMap<>();
 
-    private java.util.Deque<Instant> recentFailures(String username) {
-        java.util.Deque<Instant> q = failures.computeIfAbsent(username, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+    /** Failures in the window (pruned). Read-only: never creates an entry, so unknown names don't pile up. */
+    private int recentFailureCount(String username) {
+        java.util.Deque<Instant> q = failures.get(username);
+        if (q == null) return 0;
         Instant cutoff = Instant.now().minus(FAILURE_WINDOW);
         while (!q.isEmpty() && q.peekFirst().isBefore(cutoff)) q.pollFirst();
-        return q;
+        if (q.isEmpty()) failures.remove(username, q);
+        return q.size();
+    }
+
+    private Instant oldestFailure(String username) {
+        java.util.Deque<Instant> q = failures.get(username);
+        return q == null || q.isEmpty() ? Instant.now() : q.peekFirst();
+    }
+
+    /** Hourly sweep so entries for names that stop being tried are dropped. */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 3_600_000)
+    void pruneFailures() {
+        Instant cutoff = Instant.now().minus(FAILURE_WINDOW);
+        failures.entrySet().removeIf(e -> { e.getValue().removeIf(t -> t.isBefore(cutoff)); return e.getValue().isEmpty(); });
     }
 
     public record LoginRequest(String username, String password) {}
@@ -51,14 +66,15 @@ public class AdminAuthController {
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest body) {
         String key = body.username() == null ? "" : body.username().trim().toLowerCase(java.util.Locale.ROOT);
-        java.util.Deque<Instant> recent = recentFailures(key);
-        if (recent.size() >= MAX_FAILURES) {
-            long mins = Math.max(1, java.time.Duration.between(Instant.now(), recent.peekFirst().plus(FAILURE_WINDOW)).toMinutes() + 1);
+        if (recentFailureCount(key) >= MAX_FAILURES) {
+            long mins = Math.max(1, java.time.Duration.between(Instant.now(), oldestFailure(key).plus(FAILURE_WINDOW)).toMinutes() + 1);
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(Map.of("error", "Too many failed sign-ins for this account — try again in " + mins + " min"));
         }
         ResponseEntity<Map<String, Object>> res = attemptLogin(body);
-        if (res.getStatusCode() == HttpStatus.UNAUTHORIZED) recent.addLast(Instant.now());
+        if (res.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+            failures.computeIfAbsent(key, k -> new java.util.concurrent.ConcurrentLinkedDeque<>()).addLast(Instant.now());
+        }
         else if (res.getStatusCode().is2xxSuccessful()) failures.remove(key);
         return res;
     }

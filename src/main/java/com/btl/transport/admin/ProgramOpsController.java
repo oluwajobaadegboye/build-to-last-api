@@ -199,6 +199,10 @@ public class ProgramOpsController {
     public Map<String, Object> reminders(@RequestHeader(value = "X-Program-Id", required = false) String programId,
                                          @RequestBody(required = false) RemindersRequest req) {
         Program prog = current(programId);
+        // One send per program every 10 minutes, so repeated clicks don't email everyone again.
+        if (auditLogRepository.existsByProgramIdAndActionAndCreatedAtAfter(prog.getId(), "Sent payment reminders", OffsetDateTime.now().minusMinutes(10))) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Reminders were just sent — try again in a few minutes");
+        }
         return Map.of("sent", paymentService.sendReminders(prog.getId(), req == null ? null : req.statuses()));
     }
 

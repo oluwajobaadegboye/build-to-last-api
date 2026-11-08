@@ -129,7 +129,9 @@ public final class ParticipantDtos {
         String venue,
         @JsonProperty("daily_shuttle_enabled") boolean dailyShuttleEnabled,
         @JsonProperty("airport_pickups_enabled") boolean airportPickupsEnabled,
-        @JsonProperty("lodging_type") String lodgingType
+        @JsonProperty("lodging_type") String lodgingType,
+        /** IANA zone, e.g. "America/Chicago" — "today" for the attendee is the program's today */
+        String timezone
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

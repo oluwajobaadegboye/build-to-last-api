@@ -750,11 +750,28 @@ public class AdminController {
     }
 
     /** Normalised permission set from a request (list preferred, legacy single role accepted); FULL by default. */
-    private static String permissionsOrDefault(java.util.List<String> permissions, String role) {
+    /** Normalised permissions from the request, or null when none are valid (never defaults to FULL). */
+    private static String requestedPermissions(java.util.List<String> permissions, String role) {
         String fromList = AdminPermissions.format(permissions);
         if (fromList != null) return fromList;
-        String fromRole = role != null ? AdminPermissions.format(java.util.List.of(role.split(","))) : null;
-        return fromRole != null ? fromRole : AdminPermissions.FULL;
+        return role != null ? AdminPermissions.format(java.util.List.of(role.split(","))) : null;
+    }
+
+    private static final String NO_PERMISSIONS = "Choose at least one valid permission";
+
+    /**
+     * Accounts are shared across programs, so changing someone else's sign-in details (username, password,
+     * email, name) is only allowed when every program they belong to is one the caller fully administers.
+     */
+    private boolean mayChangeCredentials(AdminUser target) {
+        if (adminAccess.isSuper()) return true;
+        Integer callerId = adminAccess.currentUserId();
+        if (callerId != null && callerId.equals(target.getId())) return true;
+        if (callerId == null) return false;
+        java.util.Set<String> callerFull = new java.util.HashSet<>();
+        for (ProgramAdmin pa : programAdminRepository.findByAdminUserId(callerId))
+            if (AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)) callerFull.add(pa.getProgramId());
+        return programAdminRepository.findByAdminUserId(target.getId()).stream().allMatch(pa -> callerFull.contains(pa.getProgramId()));
     }
 
     private ZoneId programZone(Program program) {
@@ -1782,13 +1799,15 @@ public class AdminController {
         if (usernameTaken(req.username().trim(), null)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
         }
+        String newPerms = requestedPermissions(req.permissions(), req.role());
+        if (newPerms == null) return ResponseEntity.badRequest().body(Map.of("error", NO_PERMISSIONS));
         AdminUser user = AdminUser.builder()
             .programId(programId)
             .username(req.username().trim())
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
-            .role(permissionsOrDefault(req.permissions(), req.role()))
+            .role(newPerms)
             .email(req.email())
             .build();
         adminUserRepository.save(user);
@@ -1870,6 +1889,15 @@ public class AdminController {
         if (membership == null) {
             return ResponseEntity.status(403).body(Map.of("error", "forbidden"));
         }
+        boolean credentialChange =
+            (req.username() != null && !req.username().isBlank() && !req.username().trim().equals(user.getUsername()))
+            || (req.newPassword() != null && !req.newPassword().isBlank())
+            || (req.email() != null && !java.util.Objects.equals(req.email().isBlank() ? null : req.email().trim(), user.getEmail()))
+            || (req.displayName() != null && !java.util.Objects.equals(req.displayName().isBlank() ? null : req.displayName().trim(), user.getDisplayName()));
+        if (credentialChange && !mayChangeCredentials(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error",
+                "This admin also belongs to programs you don't run, so only they can change their name, email, username or password. You can still change their permissions here."));
+        }
         if (req.username() != null && !req.username().isBlank()) {
             if (usernameTaken(req.username().trim(), user.getId())) {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
@@ -1883,7 +1911,8 @@ public class AdminController {
             user.setPasswordHash(bcrypt.encode(req.newPassword()));
         }
         if (req.permissions() != null || (req.role() != null && !req.role().isBlank())) {
-            String perms = permissionsOrDefault(req.permissions(), req.role());
+            String perms = requestedPermissions(req.permissions(), req.role());
+            if (perms == null) return ResponseEntity.badRequest().body(Map.of("error", NO_PERMISSIONS));
             // Never leave a program without a full admin.
             boolean losingFull = AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
                 && !AdminPermissions.parse(perms).contains(AdminPermissions.FULL);

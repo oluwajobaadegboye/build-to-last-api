@@ -65,7 +65,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private Bucket createBucket(String path, String method) {
         Bandwidth limit = switch (method + ":" + path) {
-            case "POST:/api/v1/register"      -> perHour(5);
+            // Walk-up sign-ups at a venue share one network address.
+            case "POST:/api/v1/register"      -> perHour(60);
             // Per network: generous, since a whole venue can share one address. Per-account limits live in AdminAuthController.
             case "POST:/api/v1/admin/login"   -> per(120, Duration.ofMinutes(15));
             case "POST:/api/v1/auth/signup"   -> perHour(5);
@@ -107,7 +108,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         // Collapse path variables so /admin/participants/BTL-001 and /admin/participants/BTL-002
         // share one bucket rather than each getting their own.
         return uri
-            .replaceAll("/[A-Za-z]{1,8}\\d*-[A-Za-z0-9]+(?=/|$)", "/{code}")
+            // Registration codes are upper-case (MS-001, BTL-032); lower-case paths like /update-flight are left alone.
+            .replaceAll("/[A-Z]{1,8}\\d*-[A-Z0-9]+(?=/|$)", "/{code}")
             .replaceAll("/\\d+", "/{id}");
     }
 }

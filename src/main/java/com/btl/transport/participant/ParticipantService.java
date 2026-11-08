@@ -87,6 +87,8 @@ public class ParticipantService {
         String programId, String state, String customAnswersJson
     ) {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        // With a capacity, lock the program row so simultaneous sign-ups are counted one at a time.
+        if (program != null && program.getMaxRegistrations() != null) programRepository.findByIdForUpdate(program.getId());
         assertRegistrationOpen(program, email);
         // No flights are recorded while the program doesn't offer airport pickups, whatever the client sends.
         // (Shuttle opt-in is left as sent: turning the shuttle off only hides it, so attendees who

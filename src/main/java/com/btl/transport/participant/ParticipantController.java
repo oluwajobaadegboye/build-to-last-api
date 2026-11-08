@@ -321,7 +321,8 @@ public class ParticipantController {
                     prog.getAirport(), prog.getVenue(),
                     !Boolean.FALSE.equals(prog.getDailyShuttleEnabled()),
                     !Boolean.FALSE.equals(prog.getAirportPickupsEnabled()),
-                    Program.normalizeLodgingType(prog.getLodgingType())
+                    Program.normalizeLodgingType(prog.getLodgingType()),
+                    prog.getTimezone()
                 )).orElse(null);
         }
 

@@ -8,4 +8,5 @@ import java.util.List;
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     List<AuditLog> findByProgramIdOrderByIdDesc(String programId, Pageable page);
     List<AuditLog> findByProgramIdAndIdLessThanOrderByIdDesc(String programId, Long before, Pageable page);
+    boolean existsByProgramIdAndActionAndCreatedAtAfter(String programId, String action, java.time.OffsetDateTime after);
 }
