@@ -758,12 +758,12 @@ public class AdminController {
     }
 
     private static final String NO_PERMISSIONS = "Choose at least one valid permission";
-    private static final String CREATOR_PROTECTED = "This admin created the program, so only they can change their own access or remove themselves";
+    private static final String CREATOR_PROTECTED = "This admin created the program, so only they can change their access, sign-in details or remove themselves";
 
-    /** The program's creator is its first admin (the earliest membership). */
+    /** Whether this admin created the program (recorded on the program when it was made). */
     private boolean isProgramCreator(String programId, Integer adminUserId) {
-        return programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream().findFirst()
-            .map(pa -> pa.getAdminUserId().equals(adminUserId)).orElse(false);
+        return programRepository.findById(programId)
+            .map(p -> p.getCreatedByAdminId() != null && p.getCreatedByAdminId().equals(adminUserId)).orElse(false);
     }
 
     private boolean isCaller(AdminUser user) {
@@ -1909,6 +1909,10 @@ public class AdminController {
             || (req.newPassword() != null && !req.newPassword().isBlank())
             || (req.email() != null && !java.util.Objects.equals(req.email().isBlank() ? null : req.email().trim(), user.getEmail()))
             || (req.displayName() != null && !java.util.Objects.equals(req.displayName().isBlank() ? null : req.displayName().trim(), user.getDisplayName()));
+        // The creator's own sign-in details are theirs alone (otherwise a password reset would undo the protection).
+        if (credentialChange && isProgramCreator(programId, user.getId()) && !isCaller(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
+        }
         if (credentialChange && !mayChangeCredentials(user)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error",
                 "This admin also belongs to programs you don't run, so only they can change their name, email, username or password. You can still change their permissions here."));
@@ -2676,8 +2680,9 @@ public class AdminController {
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();
-        programRepository.save(p);
         Integer creatorId = adminAccess.currentUserId();
+        p.setCreatedByAdminId(creatorId);
+        programRepository.save(p);
         if (creatorId != null) {
             programAdminRepository.save(ProgramAdmin.builder()
                 .adminUserId(creatorId).programId(p.getId()).role("FULL").build());

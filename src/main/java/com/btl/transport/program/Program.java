@@ -171,6 +171,10 @@ public class Program {
     @Column(name = "registration_closes_at", length = 16)
     private String registrationClosesAt;
 
+    /** Admin account that created the program (null for programs made by a platform super-admin). */
+    @Column(name = "created_by_admin_id")
+    private Integer createdByAdminId;
+
     /** Registration closes when this many people have registered; null = no limit. */
     @Column(name = "max_registrations")
     private Integer maxRegistrations;

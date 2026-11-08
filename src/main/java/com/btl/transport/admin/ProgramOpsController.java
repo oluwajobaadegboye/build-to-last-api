@@ -217,8 +217,10 @@ public class ProgramOpsController {
         }
         try {
             return Map.of("sent", paymentService.sendReminders(prog.getId(), req == null ? null : req.statuses()));
-        } catch (RuntimeException e) {
-            reminderClaims.remove(prog.getId(), now);  // nothing was sent: allow a retry
+        } catch (ResponseStatusException e) {
+            // Refused before anything was sent (e.g. payment emails are off): allow a retry right away.
+            // Any other failure may have happened part-way through, so the cooldown stays to avoid double emails.
+            reminderClaims.remove(prog.getId(), now);
             throw e;
         }
     }
