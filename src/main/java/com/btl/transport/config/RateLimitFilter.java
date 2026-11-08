@@ -108,8 +108,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         // Collapse path variables so /admin/participants/BTL-001 and /admin/participants/BTL-002
         // share one bucket rather than each getting their own.
         return uri
-            // Registration codes are upper-case (MS-001, BTL-032); lower-case paths like /update-flight are left alone.
-            .replaceAll("/[A-Z]{1,8}\\d*-[A-Z0-9]+(?=/|$)", "/{code}")
+            // Registration codes are letters, a dash and digits (MS-001, any case); words like /update-flight
+            // or /check-in have no digits after the dash, so they keep their own limits.
+            .replaceAll("/[A-Za-z]{1,8}\\d*-\\d+(?=/|$)", "/{code}")
             .replaceAll("/\\d+", "/{id}");
     }
 }

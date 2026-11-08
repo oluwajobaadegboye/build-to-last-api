@@ -194,16 +194,33 @@ public class ProgramOpsController {
 
     public record RemindersRequest(List<String> statuses) {}
 
+    private static final java.time.Duration REMINDER_COOLDOWN = java.time.Duration.ofMinutes(10);
+    private final Map<String, OffsetDateTime> reminderClaims = new java.util.concurrent.ConcurrentHashMap<>();
+
     @Operation(summary = "Email payment reminders", description = "Sends to everyone unpaid / part paid (or the given statuses). Needs payment emails turned on.")
     @PostMapping("/payments/reminders")
     public Map<String, Object> reminders(@RequestHeader(value = "X-Program-Id", required = false) String programId,
                                          @RequestBody(required = false) RemindersRequest req) {
         Program prog = current(programId);
-        // One send per program every 10 minutes, so repeated clicks don't email everyone again.
-        if (auditLogRepository.existsByProgramIdAndActionAndCreatedAtAfter(prog.getId(), "Sent payment reminders", OffsetDateTime.now().minusMinutes(10))) {
+        // One send per program every 10 minutes. The in-memory claim is atomic, so a double-click can't send twice;
+        // the activity log covers restarts.
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime window = now.minus(REMINDER_COOLDOWN);
+        boolean[] claimed = {false};
+        reminderClaims.compute(prog.getId(), (k, last) -> {
+            if (last != null && last.isAfter(window)) return last;
+            claimed[0] = true;
+            return now;
+        });
+        if (!claimed[0] || auditLogRepository.existsByProgramIdAndActionAndCreatedAtAfter(prog.getId(), "Sent payment reminders", window)) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Reminders were just sent — try again in a few minutes");
         }
-        return Map.of("sent", paymentService.sendReminders(prog.getId(), req == null ? null : req.statuses()));
+        try {
+            return Map.of("sent", paymentService.sendReminders(prog.getId(), req == null ? null : req.statuses()));
+        } catch (RuntimeException e) {
+            reminderClaims.remove(prog.getId(), now);  // nothing was sent: allow a retry
+            throw e;
+        }
     }
 
     // ── Check-in ────────────────────────────────────────────────────────────

@@ -27,6 +27,8 @@ class LoginAndRateLimitTest {
         assertThat(n1).isEqualTo("/api/v1/update-flight");
         assertThat(n2).isEqualTo("/api/v1/admin/participants/{code}/check-in");
         assertThat(n3).isEqualTo("/api/v1/admin/participants/{code}");
+        String n4 = ReflectionTestUtils.invokeMethod(f, "normalizePath", "/api/v1/admin/participants/ms-002/payment-status");
+        assertThat(n4).isEqualTo("/api/v1/admin/participants/{code}/payment-status");
     }
 
     @Test

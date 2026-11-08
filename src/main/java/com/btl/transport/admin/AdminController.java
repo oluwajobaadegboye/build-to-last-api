@@ -758,6 +758,18 @@ public class AdminController {
     }
 
     private static final String NO_PERMISSIONS = "Choose at least one valid permission";
+    private static final String CREATOR_PROTECTED = "This admin created the program, so only they can change their own access or remove themselves";
+
+    /** The program's creator is its first admin (the earliest membership). */
+    private boolean isProgramCreator(String programId, Integer adminUserId) {
+        return programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream().findFirst()
+            .map(pa -> pa.getAdminUserId().equals(adminUserId)).orElse(false);
+    }
+
+    private boolean isCaller(AdminUser user) {
+        Integer callerId = adminAccess.currentUserId();
+        return adminAccess.isSuper() || (callerId != null && callerId.equals(user.getId()));
+    }
 
     /**
      * Accounts are shared across programs, so changing someone else's sign-in details (username, password,
@@ -1833,7 +1845,7 @@ public class AdminController {
     @Operation(summary = "Delete admin user", description = "Removes an admin user. Refuses to delete the last remaining user for a program")
     @DeleteMapping("/users/{id}")
     @Transactional
-    public ResponseEntity<AdminDtos.SuccessResponse> deleteAdminUser(
+    public ResponseEntity<?> deleteAdminUser(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @PathVariable Integer id) {
         AdminUser user = adminUserRepository.findById(id)
@@ -1844,6 +1856,9 @@ public class AdminController {
         ProgramAdmin membership = programAdminRepository.findByAdminUserIdAndProgramId(user.getId(), programId).orElse(null);
         if (membership == null) {
             return ResponseEntity.status(403).body(new AdminDtos.SuccessResponse(false));
+        }
+        if (isProgramCreator(programId, user.getId()) && !isCaller(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
         }
         if (programAdminRepository.countByProgramId(programId) <= 1) {
             return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
@@ -1913,6 +1928,10 @@ public class AdminController {
         if (req.permissions() != null || (req.role() != null && !req.role().isBlank())) {
             String perms = requestedPermissions(req.permissions(), req.role());
             if (perms == null) return ResponseEntity.badRequest().body(Map.of("error", NO_PERMISSIONS));
+            if (isProgramCreator(programId, user.getId()) && !isCaller(user)
+                    && !AdminPermissions.parse(perms).equals(AdminPermissions.parse(membership.getRole()))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
+            }
             // Never leave a program without a full admin.
             boolean losingFull = AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
                 && !AdminPermissions.parse(perms).contains(AdminPermissions.FULL);
