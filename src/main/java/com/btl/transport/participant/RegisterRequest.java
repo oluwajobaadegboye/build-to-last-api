@@ -57,5 +57,9 @@ public record RegisterRequest(
 
     /** Answers to the program's custom questions, keyed by question key. Optional. */
     @JsonProperty("custom_answers")
-    java.util.Map<String, Object> customAnswers
+    java.util.Map<String, Object> customAnswers,
+
+    /** Souvenir options chosen at registration (e.g. T-shirt size), keyed by souvenir item id. Optional. */
+    @JsonProperty("souvenir_choices")
+    java.util.Map<String, String> souvenirChoices
 ) {}

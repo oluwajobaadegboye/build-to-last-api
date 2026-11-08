@@ -57,6 +57,7 @@ public class ParticipantController {
     private String uploadsDir;
 
     private final StorageService storageService;
+    private final com.btl.transport.souvenir.SouvenirService souvenirService;
     private final ParticipantService participantService;
     private final ParticipantRepository participantRepository;
     private final FlightRepository flightRepository;
@@ -120,6 +121,7 @@ public class ParticipantController {
         resp.put("name", program.getName());
         resp.put("ini", program.getIni() != null ? program.getIni() : "");
         resp.put("registration_fields", registrationFieldService.activeFieldDtos(program.getId()));
+        resp.put("souvenirs", souvenirService.registrationItems(program.getId()));
         resp.put("daily_shuttle_enabled", !Boolean.FALSE.equals(program.getDailyShuttleEnabled()));
         resp.put("airport_pickups_enabled", !Boolean.FALSE.equals(program.getAirportPickupsEnabled()));
         resp.put("lodging_type", Program.normalizeLodgingType(program.getLodgingType()));
@@ -197,13 +199,26 @@ public class ParticipantController {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
         // Validate custom answers before anything is written. Programs without questions get null (no change).
         String answersJson;
+        Map<Integer, String> souvenirChoices;
+        Map<String, String> answerErrors = new java.util.LinkedHashMap<>();
+        Map<String, Object> validAnswers = Map.of();
         try {
-            answersJson = registrationFieldService.toJson(
-                registrationFieldService.validate(req.programId(), req.customAnswers(), true));
+            validAnswers = registrationFieldService.validate(req.programId(), req.customAnswers(), true);
         } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("error", "invalid_answers", "message", "Please check your answers", "fields", e.getErrors()));
+            answerErrors.putAll(e.getErrors());
         }
+        // Souvenir options (e.g. T-shirt size) are checked alongside the questions; errors use "souvenir:{id}" keys.
+        try {
+            souvenirChoices = souvenirService.validateChoices(req.programId(), req.souvenirChoices());
+        } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
+            answerErrors.putAll(e.getErrors());
+            souvenirChoices = Map.of();
+        }
+        if (!answerErrors.isEmpty()) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", "invalid_answers", "message", "Please check your answers", "fields", answerErrors));
+        }
+        answersJson = registrationFieldService.toJson(validAnswers);
         try {
             Participant p = participantService.register(
                 req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
@@ -211,6 +226,7 @@ public class ParticipantController {
                 req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
                 req.programId(), req.state(), answersJson
             );
+            souvenirService.saveChoices(p, souvenirChoices);
             return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
         } catch (AlreadyRegisteredException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -305,7 +321,8 @@ public class ParticipantController {
             runs,
             programInfo,
             roomDto,
-            OffsetDateTime.now().toString()
+            OffsetDateTime.now().toString(),
+            souvenirService.attendeeView(p)
         ));
     }
 

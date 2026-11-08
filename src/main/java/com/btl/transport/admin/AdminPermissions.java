@@ -22,8 +22,10 @@ public final class AdminPermissions {
     public static final String PAYMENTS = "PAYMENTS";
     /** Manage rooms, allocation and accommodation contacts. */
     public static final String ACCOMMODATION = "ACCOMMODATION";
+    /** Manage souvenir items, attendees' sizes and who has received what. */
+    public static final String SOUVENIRS = "SOUVENIRS";
 
-    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION);
+    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS);
 
     /** "REGISTRATIONS, payments" → {REGISTRATIONS, PAYMENTS}; unknown values dropped; FULL absorbs the rest. */
     public static Set<String> parse(String stored) {
@@ -58,6 +60,7 @@ public final class AdminPermissions {
                 case REGISTRATIONS -> "Registrations";
                 case PAYMENTS -> "Payments";
                 case ACCOMMODATION -> "Accommodation";
+                case SOUVENIRS -> "Souvenirs";
                 default -> p;
             });
         }
@@ -89,7 +92,10 @@ public final class AdminPermissions {
         // The Accommodation page saves the hotel list through the program update; the controller
         // limits non-full admins to the hotels field.
         new Rule("PATCH", Pattern.compile(P + "/programs/[^/]+$"), Set.of(ACCOMMODATION)),
-        new Rule("GET", Pattern.compile(P + "/hotels$"), Set.of(ACCOMMODATION))
+        new Rule("GET", Pattern.compile(P + "/hotels$"), Set.of(ACCOMMODATION)),
+        // Souvenirs: items, the hand-out sheet and per-participant updates
+        new Rule("*", Pattern.compile(P + "/souvenirs(/.*)?$"), Set.of(SOUVENIRS)),
+        new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/souvenirs/[^/]+$"), Set.of(SOUVENIRS))
     );
 
     /** Whether an admin holding {@code perms} may make this request. */

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class ParticipantDtos {
 
@@ -153,6 +154,8 @@ public final class ParticipantDtos {
         List<RunDto> runs,
         @JsonProperty("program") ProgramInfoDto program,
         @JsonProperty("room") RoomDto room,
-        @JsonProperty("generated_at") String generatedAt
+        @JsonProperty("generated_at") String generatedAt,
+        /** Every active souvenir item: name, the attendee's choice and whether they've collected it. */
+        @JsonProperty("souvenirs") List<Map<String, Object>> souvenirs
     ) {}
 }

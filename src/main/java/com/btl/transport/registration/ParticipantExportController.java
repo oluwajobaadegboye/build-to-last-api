@@ -6,6 +6,10 @@ import com.btl.transport.flight.FlightRepository;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.payment.PaymentService;
+import com.btl.transport.souvenir.ParticipantSouvenir;
+import com.btl.transport.souvenir.SouvenirItem;
+import com.btl.transport.souvenir.SouvenirItemRepository;
+import com.btl.transport.souvenir.SouvenirService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +37,8 @@ public class ParticipantExportController {
     private final RegistrationFieldRepository fieldRepository;
     private final RegistrationFieldService fieldService;
     private final PaymentService paymentService;
+    private final SouvenirItemRepository souvenirItemRepository;
+    private final SouvenirService souvenirService;
 
     @Operation(summary = "Export participants CSV", description = "All participants of the X-Program-Id program, including custom question answers")
     @GetMapping(value = "/export.csv")
@@ -44,6 +50,8 @@ public class ParticipantExportController {
         List<Participant> participants = participantRepository.findAllByProgramIdWithHotel(programId);
         Map<Integer, java.math.BigDecimal> paidTotals = paymentService.totals(participants.stream().map(Participant::getId).toList());
         List<RegistrationField> fields = fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId);
+        List<SouvenirItem> souvenirs = souvenirItemRepository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId);
+        Map<Integer, Map<Integer, ParticipantSouvenir>> souvenirRecords = souvenirs.isEmpty() ? Map.of() : souvenirService.recordsForProgram(programId);
 
         Map<Integer, List<Flight>> flights = participants.isEmpty() ? Map.of()
             : flightRepository.findByParticipantIn(participants).stream()
@@ -55,6 +63,11 @@ public class ParticipantExportController {
             "Payment status", "Amount paid"));
         for (RegistrationField f : fields) {
             header.add(Boolean.TRUE.equals(f.getActive()) ? f.getLabel() : f.getLabel() + " (removed)");
+        }
+        // Per souvenir: the chosen option (items with options only) and whether it was received.
+        for (SouvenirItem item : souvenirs) {
+            if (!souvenirService.options(item).isEmpty()) header.add(item.getName() + " (choice)");
+            header.add(item.getName() + " received");
         }
 
         StringBuilder csv = new StringBuilder("﻿"); // BOM so Excel reads UTF-8
@@ -78,6 +91,12 @@ public class ParticipantExportController {
                     case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; },
                 paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO).toPlainString()));
             for (RegistrationField f : fields) r.add(answerText(answers.get(f.getFieldKey())));
+            Map<Integer, ParticipantSouvenir> mine = souvenirRecords.getOrDefault(p.getId(), Map.of());
+            for (SouvenirItem item : souvenirs) {
+                ParticipantSouvenir rec = mine.get(item.getId());
+                if (!souvenirService.options(item).isEmpty()) r.add(rec != null ? s(rec.getChoice()) : "");
+                r.add(rec != null && Boolean.TRUE.equals(rec.getReceived()) ? "Yes" : "No");
+            }
             row(csv, r);
         }
 
