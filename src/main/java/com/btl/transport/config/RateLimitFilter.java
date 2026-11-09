@@ -70,6 +70,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // Per network: generous, since a whole venue can share one address. Per-account limits live in AdminAuthController.
             case "POST:/api/v1/admin/login"   -> per(120, Duration.ofMinutes(15));
             case "POST:/api/v1/auth/signup"   -> perHour(5);
+            case "POST:/api/v1/auth/forgot-password" -> perHour(10);
+            case "POST:/api/v1/auth/reset-password"  -> perHour(30);
             case "POST:/api/v1/admin/programs" -> perHour(20);
             case "POST:/api/v1/update-flight" -> perHour(20);
             case "GET:/api/v1/participant-status" -> perMinute(30);
