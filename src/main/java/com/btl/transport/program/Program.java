@@ -96,6 +96,10 @@ public class Program {
     @Column(name = "reg_description", columnDefinition = "text")
     private String regDescription;
 
+    /** Colour set for the registration page and program header (see PAGE_THEMES); null = picked from the name. */
+    @Column(name = "page_theme", length = 20)
+    private String pageTheme;
+
     @Column(name = "timezone")
     private String timezone;
 
@@ -178,6 +182,10 @@ public class Program {
     /** Registration closes when this many people have registered; null = no limit. */
     @Column(name = "max_registrations")
     private Integer maxRegistrations;
+
+    /** Page colour sets an admin can pick; the frontend's programTheme.ts holds the same keys. */
+    public static final java.util.Set<String> PAGE_THEMES =
+        java.util.Set.of("violet", "teal", "amber", "blue", "rose", "forest", "graphite", "plum");
 
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 

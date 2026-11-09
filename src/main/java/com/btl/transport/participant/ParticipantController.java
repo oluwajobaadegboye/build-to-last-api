@@ -147,6 +147,7 @@ public class ParticipantController {
         resp.put("registration_closes_at", program.getRegistrationClosesAt());
         resp.put("reg_title",       program.getRegTitle());
         resp.put("reg_description", program.getRegDescription());
+        resp.put("page_theme",      program.getPageTheme());
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }

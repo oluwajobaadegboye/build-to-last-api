@@ -2755,6 +2755,14 @@ public class AdminController {
         if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
         if (req.regTitle()       != null) p.setRegTitle(req.regTitle().isBlank() ? null : req.regTitle());
         if (req.regDescription() != null) p.setRegDescription(req.regDescription().isBlank() ? null : req.regDescription());
+        if (req.pageTheme() != null) {
+            // "" = automatic (colour picked from the program name)
+            String t = req.pageTheme().trim().toLowerCase();
+            if (!t.isEmpty() && !Program.PAGE_THEMES.contains(t)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown page colour");
+            }
+            p.setPageTheme(t.isEmpty() ? null : t);
+        }
         if (req.timezone()       != null && !req.timezone().isBlank()) p.setTimezone(req.timezone());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
@@ -2798,6 +2806,7 @@ public class AdminController {
             p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
             p.getRegTitle(),
             p.getRegDescription(),
+            p.getPageTheme(),
             p.getTimezone() != null ? p.getTimezone() : "America/New_York",
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),
