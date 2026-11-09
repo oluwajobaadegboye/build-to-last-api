@@ -2853,6 +2853,7 @@ public class AdminController {
     @Operation(summary = "Upload file", description = "Uploads a file (e.g. program logo) to storage and returns the public URL")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, String>> upload(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The file is empty.");
         String url = storageService.store(file);
         return ResponseEntity.ok(Map.of("url", url));
     }
