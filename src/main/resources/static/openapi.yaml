@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: BTL 2026 Transport API
+  title: ProgramHub API
   description: >
     Airport pickup and hotel shuttle coordination for Built to Last 2026 conference
     (June 11–14, Indianapolis).
@@ -11,7 +11,7 @@ info:
 servers:
   - url: http://localhost:8080/api/v1
     description: Local dev
-  - url: https://transport.btl2026.com/api/v1
+  - url: https://<your-api-domain>/api/v1
     description: Production
 
 tags:
@@ -126,7 +126,7 @@ components:
           type: boolean
         btl_code:
           type: string
-          example: BTL-001
+          example: ABC-001
         message:
           type: string
 
@@ -138,7 +138,7 @@ components:
       properties:
         btl_code:
           type: string
-          example: BTL-001
+          example: ABC-001
         direction:
           type: string
           enum: [arrival, departure]
@@ -382,7 +382,7 @@ components:
           type: integer
         btl_code:
           type: string
-          example: BTL-001
+          example: ABC-001
         full_name:
           type: string
         email:
@@ -658,7 +658,7 @@ paths:
   /participant-status:
     get:
       tags: [Public]
-      summary: Look up participant status by BTL code
+      summary: Look up participant status by registration code
       operationId: participantStatus
       parameters:
         - name: code
@@ -666,7 +666,7 @@ paths:
           required: true
           schema:
             type: string
-            example: BTL-001
+            example: ABC-001
       responses:
         "200":
           description: Participant status
@@ -823,7 +823,7 @@ paths:
   /admin/participants/{btlCode}:
     get:
       tags: [Admin]
-      summary: Get a single participant by BTL code
+      summary: Get a single participant by registration code
       operationId: getParticipant
       security:
         - bearerAuth: []
@@ -833,7 +833,7 @@ paths:
           required: true
           schema:
             type: string
-            example: BTL-001
+            example: ABC-001
       responses:
         "200":
           description: Participant detail
@@ -949,7 +949,7 @@ paths:
           required: true
           schema:
             type: string
-            example: BTL-001
+            example: ABC-001
       responses:
         "200":
           description: Resolved

@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "BTL 2026 Transport API",
+    "name": "ProgramHub API",
     "description": "Airport pickup and hotel shuttle coordination for Built to Last 2026 (June 11–14, Indianapolis).\n\n**Auth:** Call `Admin / Login` first. The test script automatically stores the token in the `token` collection variable, so all subsequent admin requests include `Authorization: Bearer {{token}}` automatically.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -8,7 +8,7 @@
     {
       "key": "base_url",
       "value": "http://localhost:8080/api/v1",
-      "description": "Change to https://transport.btl2026.com/api/v1 for production"
+      "description": "Change to https://<your-api-domain>/api/v1 for production"
     },
     {
       "key": "token",
@@ -16,9 +16,9 @@
       "description": "Populated automatically by the Admin Login request test script"
     },
     {
-      "key": "btl_code",
-      "value": "BTL-001",
-      "description": "Sample BTL code — update after registering"
+      "key": "code",
+      "value": "ABC-001",
+      "description": "Sample registration code — update after registering"
     }
   ],
   "auth": {
@@ -108,7 +108,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\"success\":true,\"btl_code\":\"BTL-001\",\"message\":\"Registration successful\"}"
+              "body": "{\"success\":true,\"btl_code\":\"ABC-001\",\"message\":\"Registration successful\"}"
             }
           ]
         },
@@ -126,7 +126,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"btl_code\": \"{{btl_code}}\",\n  \"direction\": \"arrival\",\n  \"airline\": \"AA\",\n  \"flight_number\": \"AA123\",\n  \"submitted_datetime\": \"2026-06-11T14:30:00-05:00\"\n}",
+              "raw": "{\n  \"btl_code\": \"{{code}}\",\n  \"direction\": \"arrival\",\n  \"airline\": \"AA\",\n  \"flight_number\": \"AA123\",\n  \"submitted_datetime\": \"2026-06-11T14:30:00-05:00\"\n}",
               "options": { "raw": { "language": "json" } }
             }
           }
@@ -136,11 +136,11 @@
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{base_url}}/participant-status?code={{btl_code}}",
+              "raw": "{{base_url}}/participant-status?code={{code}}",
               "host": ["{{base_url}}"],
               "path": ["participant-status"],
               "query": [
-                { "key": "code", "value": "{{btl_code}}" }
+                { "key": "code", "value": "{{code}}" }
               ]
             }
           }
@@ -252,13 +252,13 @@
           }
         },
         {
-          "name": "Participants — get by BTL code",
+          "name": "Participants — get by registration code",
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{base_url}}/admin/participants/{{btl_code}}",
+              "raw": "{{base_url}}/admin/participants/{{code}}",
               "host": ["{{base_url}}"],
-              "path": ["admin", "participants", "{{btl_code}}"]
+              "path": ["admin", "participants", "{{code}}"]
             }
           }
         },
@@ -316,9 +316,9 @@
           "request": {
             "method": "POST",
             "url": {
-              "raw": "{{base_url}}/admin/alerts/{{btl_code}}/resolve",
+              "raw": "{{base_url}}/admin/alerts/{{code}}/resolve",
               "host": ["{{base_url}}"],
-              "path": ["admin", "alerts", "{{btl_code}}", "resolve"]
+              "path": ["admin", "alerts", "{{code}}", "resolve"]
             }
           }
         },
