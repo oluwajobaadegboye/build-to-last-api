@@ -1,6 +1,6 @@
-# BTL 2026 Conference Transport System — Backend
+# ProgramHub — Backend
 
-Spring Boot 3.x backend for the Built to Last 2026 conference transport system.
+Spring Boot 3.x backend for ProgramHub: program registration, payments, rooms, souvenirs, check-in, airport pickups and shuttles.
 Manages airport pickups, daily hotel-to-church shuttles, flight monitoring, and SMS/email notifications
 for 250–400 participants across June 11–14, 2026 in Indianapolis.
 
@@ -75,7 +75,7 @@ curl http://localhost:8080/api/v1/shuttle-status
 | GET | `/api/v1/health` | Health check |
 | GET | `/api/v1/hotels` | List hotels |
 | GET | `/api/v1/shuttle-status` | Full shuttle schedule |
-| GET | `/api/v1/participant-status?code=BTL-042` | Participant transport status |
+| GET | `/api/v1/participant-status?code=ABC-042` | Participant status |
 | POST | `/api/v1/register` | Register a participant |
 | POST | `/api/v1/update-flight` | Update flight info |
 | GET | `/api/v1/coordinator-contacts` | Coordinator contact info |
@@ -90,7 +90,7 @@ curl http://localhost:8080/api/v1/shuttle-status
 | PATCH | `/api/v1/admin/participants/{id}/hotel` | Update hotel |
 | PATCH | `/api/v1/admin/participants/{id}/attention` | Flag/unflag attention |
 | GET | `/api/v1/admin/alerts` | Active alerts |
-| POST | `/api/v1/admin/alerts/{btlCode}/resolve` | Resolve alert |
+| POST | `/api/v1/admin/alerts/{code}/resolve` | Resolve alert |
 | GET | `/api/v1/admin/runs` | List runs by day |
 | PATCH | `/api/v1/admin/runs/{id}/driver` | Assign driver |
 | PATCH | `/api/v1/admin/runs/{id}/vehicle` | Assign vehicle |
@@ -111,7 +111,7 @@ Tables already exist in Supabase. Flyway only runs ALTER TABLE additions.
 | V1 | Baseline (no-op — marks existing tables) |
 | V2 | Add missing columns (attention_reason, delay_mins, etc.) |
 | V3 | Performance indexes |
-| V4 | BTL code sequence |
+| V4 | Registration code sequence |
 | V5 | Seed shuttle_config |
 | V6 | Seed airport_config |
 | V7 | Seed notification_config |
@@ -153,7 +153,7 @@ After apply, note the outputs:
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id btl/supabase-db-url \
+  --secret-id <db-url-secret-id> \
   --secret-string "jdbc:postgresql://db.xxx.supabase.co:5432/postgres"
 
 # Repeat for all secrets in infra/secrets.tf
@@ -163,7 +163,7 @@ aws secretsmanager put-secret-value \
 
 Only two secrets needed in GitHub (Settings → Secrets → Actions):
 ```
-AWS_ROLE_ARN    arn:aws:iam::ACCOUNT_ID:role/btl-transport-github-deploy-role
+AWS_ROLE_ARN    arn:aws:iam::ACCOUNT_ID:role/<github-deploy-role>
 AWS_REGION      us-east-2
 ```
 
@@ -177,37 +177,34 @@ Manual deploy trigger: Actions → "Deploy Backend" → Run workflow.
 
 ```bash
 aws ecs update-service \
-  --cluster btl-transport-cluster \
-  --service btl-transport-service \
+  --cluster <ecs-cluster> \
+  --service <ecs-service> \
   --desired-count 0 \
   --region us-east-2
 ```
 
-## Switching the Vercel Frontend
+## Vercel Frontend Environment Variables
 
-Change one environment variable in Vercel:
+The frontend talks to this backend only. Set these two in Vercel (Production and Preview), then redeploy:
 
 ```
-# Before (n8n)
-VITE_API_BASE_URL=https://your-n8n.railway.app/webhook
-
-# After (Spring Boot)
-VITE_API_BASE_URL=https://transport.btl2026.com/api/v1
+VITE_API_BASE_URL=https://<your-api-domain>/api/v1   # full URL of this backend for that environment
+VITE_USE_MOCK_DATA=false
 ```
 
-Response shapes are preserved exactly — the frontend needs no code changes.
+Secrets (database, JWT, SendGrid, AviationStack) belong to this backend, never in `VITE_` variables — those are bundled into public JavaScript.
 
 Test each endpoint individually before switching production traffic:
 ```bash
-BASE=https://transport.btl2026.com/api/v1
+BASE=https://<your-api-domain>/api/v1
 curl $BASE/health
 curl $BASE/shuttle-status
-curl "$BASE/participant-status?code=BTL-001"
+curl "$BASE/participant-status?code=ABC-001"
 ```
 
 ## Key Business Rules
 
-- **BTL codes**: Generated atomically from PostgreSQL sequence `btl_code_seq` (format: `BTL-001`)
+- **Registration codes**: Generated atomically from a PostgreSQL sequence (format: the program's short code + number, e.g. `ABC-001`)
 - **Flight polling**: Per program, automatic — from the day before the program starts to the end of the day after it ends (program time zone), only while airport pickups are on
 - **Leg 4 pickup** ("Departures from the venue", optional per program, off by default): flights leaving before the cutoff → picked up at the attendee's lodging before sessions begin; at or after the cutoff → picked up at the venue after the morning session
 - **Delay classification**: < 2hrs = minor SMS only; 2–4hrs = major SMS+email; ≥ 4hrs = critical
