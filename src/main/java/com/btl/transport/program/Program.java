@@ -80,6 +80,10 @@ public class Program {
     @Column(name = "logo_url")
     private String logoUrl;
 
+    /** Optional banner/poster image (hero of the landing and registration pages). */
+    @Column(name = "banner_url")
+    private String bannerUrl;
+
     @Column(name = "hotel_selection_enabled")
     private Boolean hotelSelectionEnabled;
 
@@ -112,6 +116,76 @@ public class Program {
 
     @Column(name = "show_export_recipients")
     private Boolean showExportRecipients;
+
+    /** Daily shuttle runs between lodging and venue. Off for e.g. camps within walking distance. */
+    @Column(name = "daily_shuttle_enabled", nullable = false)
+    @Builder.Default
+    private Boolean dailyShuttleEnabled = true;
+
+    /** Airport arrival/departure pickups (and collecting flight details at registration). */
+    @Column(name = "airport_pickups_enabled", nullable = false)
+    @Builder.Default
+    private Boolean airportPickupsEnabled = true;
+
+    /** Where attendees stay: one of {@link #LODGING_TYPES}; drives labels such as "Hotel" vs "Cabin". */
+    @Column(name = "lodging_type", nullable = false, length = 20)
+    @Builder.Default
+    private String lodgingType = "hotel";
+
+    /**
+     * "Leave from the venue" rule for departure pickups: when on, attendees whose flight leaves before
+     * {@link #venueDepartureCutoff} are picked up at the venue instead of their lodging. Off by default.
+     */
+    @Column(name = "venue_departure_rule", nullable = false)
+    @Builder.Default
+    private Boolean venueDepartureRule = false;
+
+    /** "HH:mm"; null → 10:30. Only used when {@link #venueDepartureRule} is on. */
+    @Column(name = "venue_departure_cutoff", length = 5)
+    private String venueDepartureCutoff;
+
+    /** Optional registration fee; when set, payment status follows the total paid. */
+    @Column(name = "registration_fee")
+    private java.math.BigDecimal registrationFee;
+
+    @Column(name = "fee_currency", nullable = false, length = 3)
+    @Builder.Default
+    private String feeCurrency = "USD";
+
+    /** Attendees see their payment status/balance on their status page. */
+    @Column(name = "show_payment_to_attendees", nullable = false)
+    @Builder.Default
+    private Boolean showPaymentToAttendees = false;
+
+    /** Registrations-only admins see amounts (not just paid / part paid / unpaid). */
+    @Column(name = "registrations_see_amounts", nullable = false)
+    @Builder.Default
+    private Boolean registrationsSeeAmounts = true;
+
+    /** Email attendees a receipt when a payment is recorded, and allow payment reminders. */
+    @Column(name = "payment_emails_enabled", nullable = false)
+    @Builder.Default
+    private Boolean paymentEmailsEnabled = false;
+
+    /** Local "YYYY-MM-DDTHH:mm" (program timezone) after which registration closes; null = no date. */
+    @Column(name = "registration_closes_at", length = 16)
+    private String registrationClosesAt;
+
+    /** Admin account that created the program (null for programs made by a platform super-admin). */
+    @Column(name = "created_by_admin_id")
+    private Integer createdByAdminId;
+
+    /** Registration closes when this many people have registered; null = no limit. */
+    @Column(name = "max_registrations")
+    private Integer maxRegistrations;
+
+    public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
+
+    /** Normalised lodging type; unknown or blank values fall back to "hotel". */
+    public static String normalizeLodgingType(String raw) {
+        String t = raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
+        return LODGING_TYPES.contains(t) ? t : "hotel";
+    }
 
     @Column(name = "breakout_num_groups")
     @Builder.Default

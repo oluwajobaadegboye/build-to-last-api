@@ -38,4 +38,15 @@ public class AdminUser {
 
     @Column(name = "email")
     private String email;
+
+    /** False only for self sign-ups that haven't clicked their verification link yet. */
+    @Column(name = "email_verified", nullable = false)
+    @Builder.Default
+    private Boolean emailVerified = true;
+
+    @Column(name = "verification_token")
+    private String verificationToken;
+
+    @Column(name = "verification_sent_at")
+    private OffsetDateTime verificationSentAt;
 }

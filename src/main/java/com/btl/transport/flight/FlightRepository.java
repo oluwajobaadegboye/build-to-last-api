@@ -16,7 +16,7 @@ public interface FlightRepository extends JpaRepository<Flight, Integer> {
 
     List<Flight> findByPollingActiveTrue();
 
-    @Query("SELECT f FROM Flight f WHERE f.pollingActive = true " +
+    @Query("SELECT f FROM Flight f JOIN FETCH f.participant WHERE f.pollingActive = true " +
            "AND f.submittedDatetime >= :windowStart AND f.submittedDatetime <= :windowEnd")
     List<Flight> findActiveFlightsInWindow(
         @Param("windowStart") OffsetDateTime windowStart,

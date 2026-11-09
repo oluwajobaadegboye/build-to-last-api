@@ -208,8 +208,8 @@ curl "$BASE/participant-status?code=BTL-001"
 ## Key Business Rules
 
 - **BTL codes**: Generated atomically from PostgreSQL sequence `btl_code_seq` (format: `BTL-001`)
-- **Flight polling**: Active Jun 11 all day + Jun 12 until noon (America/Indiana/Indianapolis)
-- **Leg 4 pickup**: If departure before hotel cutoff time → pick up from church; after → from hotel
+- **Flight polling**: Per program, automatic — from the day before the program starts to the end of the day after it ends (program time zone), only while airport pickups are on
+- **Leg 4 pickup** ("Departures from the venue", optional per program, off by default): flights leaving before the cutoff → picked up at the attendee's lodging before sessions begin; at or after the cutoff → picked up at the venue after the morning session
 - **Delay classification**: < 2hrs = minor SMS only; 2–4hrs = major SMS+email; ≥ 4hrs = critical
 - **Notifications**: Best-effort — SMS failure never fails a registration
 - **Admin auth**: `ADMIN_API_KEY` header on all `/api/v1/admin/*` routes (no JWT)

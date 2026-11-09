@@ -60,8 +60,14 @@ public final class AdminDtos {
         @JsonProperty("flight_departure")  FlightAdminDto flightDeparture,
         @JsonProperty("boarded_arrival")   boolean boardedArrival,
         @JsonProperty("boarded_departure") boolean boardedDeparture,
-        @JsonProperty("breakout_group")    Integer breakoutGroup
-    ) {}
+        @JsonProperty("breakout_group")    Integer breakoutGroup,
+        @JsonProperty("custom_answers")    java.util.Map<String, Object> customAnswers,
+        @JsonProperty("payment_status")    String paymentStatus,
+        @JsonProperty("amount_paid")       java.math.BigDecimal amountPaid
+    ) {
+        /** Neutral alias for btl_code (the registration code). */
+        @JsonProperty("code") public String code() { return btlCode; }
+    }
 
     record VehicleAdminDto(
         @JsonProperty("vehicle_id") String vehicleId,
@@ -264,6 +270,7 @@ public final class AdminDtos {
         String city,
         String state,
         @JsonProperty("logo_url") String logoUrl,
+        @JsonProperty("banner_url") String bannerUrl,
         @JsonProperty("hotel_selection_enabled") Boolean hotelSelectionEnabled,
         @JsonProperty("registration_open") Boolean registrationOpen,
         @JsonProperty("reg_title") String regTitle,
@@ -281,6 +288,13 @@ public final class AdminDtos {
         @JsonProperty("show_notify_participants") Boolean showNotifyParticipants,
         @JsonProperty("show_export_recipients") Boolean showExportRecipients,
         @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType,
+        @JsonProperty("registration_fee") java.math.BigDecimal registrationFee,
+        @JsonProperty("fee_currency") String feeCurrency,
+        @JsonProperty("venue_departure_rule") Boolean venueDepartureRule,
+        @JsonProperty("venue_departure_cutoff") String venueDepartureCutoff,
         @JsonProperty("created_at") String createdAt
     ) {}
 
@@ -297,12 +311,16 @@ public final class AdminDtos {
         String city,
         String state,
         @JsonProperty("logo_url") String logoUrl,
+        @JsonProperty("banner_url") String bannerUrl,
         @JsonProperty("hotel_selection_enabled") Boolean hotelSelectionEnabled,
         String timezone,
         Object hotels,
         @JsonProperty("morning_runs") Object morningRuns,
         @JsonProperty("evening_runs") Object eveningRuns,
-        Object rules
+        Object rules,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType
     ) {}
 
     record UpdateProgramRequest(
@@ -317,6 +335,7 @@ public final class AdminDtos {
         String city,
         String state,
         @JsonProperty("logo_url") String logoUrl,
+        @JsonProperty("banner_url") String bannerUrl,
         @JsonProperty("hotel_selection_enabled") Boolean hotelSelectionEnabled,
         @JsonProperty("registration_open") Boolean registrationOpen,
         @JsonProperty("reg_title") String regTitle,
@@ -327,6 +346,13 @@ public final class AdminDtos {
         @JsonProperty("evening_runs") Object eveningRuns,
         @JsonProperty("daily_schedules") Object dailySchedules,
         Object rules,
-        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups
+        @JsonProperty("breakout_num_groups") Integer breakoutNumGroups,
+        @JsonProperty("daily_shuttle_enabled") Boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") Boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType,
+        @JsonProperty("venue_departure_rule") Boolean venueDepartureRule,
+        @JsonProperty("venue_departure_cutoff") String venueDepartureCutoff,
+        @JsonProperty("registration_fee") java.math.BigDecimal registrationFee,
+        @JsonProperty("fee_currency") String feeCurrency
     ) {}
 }

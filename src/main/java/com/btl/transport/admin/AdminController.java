@@ -2,6 +2,7 @@ package com.btl.transport.admin;
 
 import com.btl.transport.common.BtlCodeService;
 import com.btl.transport.program.Program;
+import com.btl.transport.program.ProgramDates;
 import com.btl.transport.program.ProgramRepository;
 import com.btl.transport.room.AccommodationContact;
 import com.btl.transport.room.AccommodationContactRepository;
@@ -107,7 +108,8 @@ public class AdminController {
         @JsonProperty("needs_attention")  Boolean needsAttention,
         @JsonProperty("attention_reason") String attentionReason,
         String notes,
-        @JsonProperty("breakout_group")   Integer breakoutGroup
+        @JsonProperty("breakout_group")   Integer breakoutGroup,
+        @JsonProperty("custom_answers")   Map<String, Object> customAnswers
     ) {}
 
     public record UpdateRunRequest(
@@ -157,6 +159,11 @@ public class AdminController {
     private final AccommodationContactRepository accommodationContactRepository;
     private final Leg4CalculatorService leg4Calculator;
     private final BtlCodeService btlCodeService;
+    private final AdminAccess adminAccess;
+    private final AdminProperties adminProperties;
+    private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
+    private final ProgramAdminRepository programAdminRepository;
+    private final com.btl.transport.payment.ParticipantPaymentRepository participantPaymentRepository;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -200,6 +207,7 @@ public class AdminController {
         @RequestParam(name = "hotel_id", required = false) Integer hotelId,
         @RequestParam(name = "needs_attention", required = false) Boolean needsAttention,
         @RequestParam(required = false) String search,
+        @RequestParam(name = "payment_status", required = false) String paymentStatus,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size
     ) {
@@ -212,6 +220,9 @@ public class AdminController {
 
         Stream<Participant> stream = all.stream();
         if (statusEnum != null) stream = stream.filter(p -> statusEnum.equals(p.getStatus()));
+        String payFilter = paymentStatus != null && !paymentStatus.isBlank() ? paymentStatus.trim().toLowerCase() : null;
+        if (payFilter != null) stream = stream.filter(p ->
+            payFilter.equals(com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus())));
         if (hotelId != null) stream = stream.filter(p -> p.getHotel() != null && hotelId.equals(p.getHotel().getId()));
         if (Boolean.TRUE.equals(needsAttention)) stream = stream.filter(p -> Boolean.TRUE.equals(p.getNeedsAttention()));
         if (search != null && !search.isBlank()) {
@@ -252,12 +263,13 @@ public class AdminController {
         ));
     }
 
-    @Operation(summary = "Get participant", description = "Returns a single participant summary by BTL code")
+    @Operation(summary = "Get participant", description = "Returns a single participant summary by registration code")
     @GetMapping("/participants/{btlCode}")
     @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCodeWithHotel(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         return ResponseEntity.ok(participantSummary(p));
     }
 
@@ -269,6 +281,7 @@ public class AdminController {
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
+        adminAccess.requireProgram(p.getProgramId());
         // Hotel lookup — simplified; full impl would fetch hotel by req.hotelId()
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
@@ -283,6 +296,7 @@ public class AdminController {
     ) {
         Participant p = participantRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + id));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(Boolean.TRUE.equals(req.needsAttention()));
         p.setAttentionReason(req.attentionReason());
         p.setUpdatedAt(OffsetDateTime.now());
@@ -294,8 +308,10 @@ public class AdminController {
     @Operation(summary = "List alerts", description = "Returns all participants currently flagged as needing attention")
     @GetMapping("/alerts")
     public ResponseEntity<List<Map<String, Object>>> getAlerts() {
+        String scopedProgram = adminAccess.currentProgramId();
         List<Participant> flagged = participantRepository.findAll().stream()
             .filter(p -> Boolean.TRUE.equals(p.getNeedsAttention()))
+            .filter(p -> scopedProgram == null || scopedProgram.equals(p.getProgramId()))
             .toList();
         List<Map<String, Object>> alerts = flagged.stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -311,11 +327,12 @@ public class AdminController {
         return ResponseEntity.ok(alerts);
     }
 
-    @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by BTL code")
+    @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by registration code")
     @PostMapping("/alerts/{btlCode}/resolve")
     public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
         p.setUpdatedAt(OffsetDateTime.now());
@@ -357,8 +374,10 @@ public class AdminController {
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
+        adminAccess.requireProgram(run.getProgramId());
         Driver driver = driverRepository.findById(req.driverId())
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + req.driverId()));
+        adminAccess.requireProgram(driver.getProgramId());
         run.setDriver(driver);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -373,8 +392,10 @@ public class AdminController {
     ) {
         Run run = runRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + id));
+        adminAccess.requireProgram(run.getProgramId());
         Vehicle vehicle = vehicleRepository.findById(req.vehicleId())
             .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + req.vehicleId()));
+        adminAccess.requireProgram(vehicle.getProgramId());
         run.setVehicle(vehicle);
         run.setUpdatedAt(OffsetDateTime.now());
         runRepository.save(run);
@@ -388,6 +409,7 @@ public class AdminController {
             @RequestBody java.util.Map<String, Object> req) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         String link = req.get("whatsapp_group_link") instanceof String s ? s : null;
         if (link != null && !link.isBlank() && !link.startsWith("https://chat.whatsapp.com/")) {
             throw new org.springframework.web.server.ResponseStatusException(
@@ -406,8 +428,10 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> updateBoarding(@RequestBody BoardingRequest req) {
         Run run = runRepository.findByRunId(req.runId())
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
+        adminAccess.requireProgram(run.getProgramId());
         Participant participant = participantRepository.findByBtlCode(req.btlCode())
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        adminAccess.requireProgram(participant.getProgramId());
         boolean boarded = Boolean.TRUE.equals(req.boarded());
         runService.markBoarded(run.getId(), participant.getId(), boarded);
         return ResponseEntity.ok(Map.of("success", true, "boarded", boarded));
@@ -452,6 +476,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.DriverAdminDto> updateDriver(@PathVariable Integer id, @RequestBody Driver updates) {
         Driver d = driverRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
+        adminAccess.requireProgram(d.getProgramId());
         if (updates.getName()     != null) d.setName(updates.getName());
         if (updates.getPhone()    != null) d.setPhone(updates.getPhone());
         if (updates.getWhatsapp() != null) d.setWhatsapp(updates.getWhatsapp());
@@ -463,6 +488,7 @@ public class AdminController {
     @DeleteMapping("/drivers/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteDriver(@PathVariable Integer id) {
+        driverRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         runRepository.clearDriverFromRuns(id);
         driverRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -473,6 +499,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> resendDriverLink(@PathVariable Integer id) {
         Driver d = driverRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + id));
+        adminAccess.requireProgram(d.getProgramId());
         if (d.getEmail() == null || d.getEmail().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Driver has no email address on file.");
         }
@@ -487,11 +514,12 @@ public class AdminController {
     }
 
     // ── Resend code ──────────────────────────────────────────────────────────
-    @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the BTL code email for a participant, initiated by an admin")
+    @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the registration code email for a participant, initiated by an admin")
     @PostMapping("/participants/{btlCode}/resend-code")
     public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         if (p.getEmail() != null && !p.getEmail().isBlank()) {
             notificationService.sendRegistrationConfirmation(p);
         }
@@ -524,6 +552,7 @@ public class AdminController {
     public ResponseEntity<Vehicle> updateVehicle(@PathVariable Integer id, @RequestBody Vehicle updates) {
         Vehicle v = vehicleRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Vehicle not found: " + id));
+        adminAccess.requireProgram(v.getProgramId());
         if (updates.getLabel()    != null) v.setLabel(updates.getLabel());
         if (updates.getCapacity() != null) v.setCapacity(updates.getCapacity());
         if (updates.getType()     != null) v.setType(updates.getType());
@@ -533,6 +562,7 @@ public class AdminController {
     @Operation(summary = "Delete vehicle", description = "Permanently deletes a vehicle by ID")
     @DeleteMapping("/vehicles/{id}")
     public ResponseEntity<AdminDtos.SuccessResponse> deleteVehicle(@PathVariable Integer id) {
+        vehicleRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         vehicleRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -566,13 +596,14 @@ public class AdminController {
 
     // ── Participant (singular path) ────────────────────────────────────────
 
-    @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by BTL code")
+    @Operation(summary = "Get participant detail", description = "Returns full participant detail including flight and hotel info by registration code")
     @GetMapping("/participant/{code}")
     @Transactional(readOnly = true)
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> getParticipantDetail(
             @PathVariable String code) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
@@ -581,7 +612,7 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
-    @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by BTL code")
+    @Operation(summary = "Update participant", description = "Partially updates a participant's personal details, attention flag, or notes by registration code")
     @PatchMapping("/participant/{code}")
     @Transactional
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipant(
@@ -589,6 +620,7 @@ public class AdminController {
             @RequestBody UpdateParticipantRequest req) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
         if (req.fullName()        != null) p.setFullName(req.fullName());
         if (req.phone()           != null) p.setPhone(req.phone());
         if (req.email()           != null) p.setEmail(req.email());
@@ -596,6 +628,21 @@ public class AdminController {
         if (req.attentionReason() != null) p.setAttentionReason(req.attentionReason());
         if (req.notes()           != null) p.setNotes(req.notes());
         if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup());
+        if (req.customAnswers()   != null) {
+            // Admin edits: types/options checked, required not enforced. Answers to removed questions are kept.
+            Map<String, Object> merged = new LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));
+            Map<String, Object> validated;
+            try {
+                validated = registrationFieldService.validate(p.getProgramId(), req.customAnswers(), false);
+            } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, String.join("; ", e.getErrors().values()));
+            }
+            for (String key : req.customAnswers().keySet()) {
+                if (validated.containsKey(key)) merged.put(key, validated.get(key));
+                else if (registrationFieldService.isActiveKey(p.getProgramId(), key)) merged.remove(key); // cleared
+            }
+            p.setCustomAnswers(registrationFieldService.toJson(merged));
+        }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -659,6 +706,7 @@ public class AdminController {
 
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
 
         Direction dir = "departure".equalsIgnoreCase(direction) ? Direction.TO_AIRPORT : Direction.TO_HOTEL;
 
@@ -666,7 +714,8 @@ public class AdminController {
             .orElseGet(() -> Flight.builder()
                 .participant(p)
                 .direction(dir)
-                .airportCode("IND")
+                .airportCode(ProgramDates.airportCode(
+                    p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null))
                 .flightStatus(FlightStatusType.UNKNOWN)
                 .delayMins(0)
                 .createdAt(OffsetDateTime.now())
@@ -677,20 +726,18 @@ public class AdminController {
         flight.setSubmittedDatetime(dt);
         flight.setUpdatedAt(OffsetDateTime.now());
 
+        Program prog = p.getProgramId() != null
+            ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+
         if (dir == Direction.TO_HOTEL) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            boolean polling = isWithinPollingWindow(config, dt.toLocalDate());
-            flight.setPollingActive(polling);
+            flight.setPollingActive(ProgramDates.isTrackable(prog, dt.toLocalDate(), OffsetDateTime.now()));
         }
 
         if (dir == Direction.TO_AIRPORT) {
-            AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);
-            Program prog = p.getProgramId() != null
-                ? programRepository.findById(p.getProgramId()).orElse(null) : null;
-            ZoneId zone = programZone(prog);
-            LocalTime departTime = dt.atZoneSameInstant(zone).toLocalTime();
-            LocalTime defaultCutoff = config != null ? config.getLeg4DefaultCutoffAsLocalTime() : null;
-            flight.setLeg4PickupFrom(leg4Calculator.calculate(departTime, p.getHotel(), defaultCutoff));
+            LocalTime departTime = dt.atZoneSameInstant(programZone(prog)).toLocalTime();
+            LocalTime venueCutoff = ProgramDates.venueDepartureCutoff(prog);
+            flight.setLeg4PickupFrom(venueCutoff == null ? null
+                : leg4Calculator.calculate(departTime, p.getHotel(), venueCutoff));
         }
 
         flightRepository.save(flight);
@@ -702,19 +749,48 @@ public class AdminController {
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
     }
 
+    /** Normalised permission set from a request (list preferred, legacy single role accepted); FULL by default. */
+    /** Normalised permissions from the request, or null when none are valid (never defaults to FULL). */
+    private static String requestedPermissions(java.util.List<String> permissions, String role) {
+        String fromList = AdminPermissions.format(permissions);
+        if (fromList != null) return fromList;
+        return role != null ? AdminPermissions.format(java.util.List.of(role.split(","))) : null;
+    }
+
+    private static final String NO_PERMISSIONS = "Choose at least one valid permission";
+    private static final String CREATOR_PROTECTED = "This admin created the program, so only they can change their access, sign-in details or remove themselves";
+
+    /** Whether this admin created the program (recorded on the program when it was made). */
+    private boolean isProgramCreator(String programId, Integer adminUserId) {
+        return programRepository.findById(programId)
+            .map(p -> p.getCreatedByAdminId() != null && p.getCreatedByAdminId().equals(adminUserId)).orElse(false);
+    }
+
+    private boolean isCaller(AdminUser user) {
+        Integer callerId = adminAccess.currentUserId();
+        return adminAccess.isSuper() || (callerId != null && callerId.equals(user.getId()));
+    }
+
+    /**
+     * Accounts are shared across programs, so changing someone else's sign-in details (username, password,
+     * email, name) is only allowed when every program they belong to is one the caller fully administers.
+     */
+    private boolean mayChangeCredentials(AdminUser target) {
+        if (adminAccess.isSuper()) return true;
+        Integer callerId = adminAccess.currentUserId();
+        if (callerId != null && callerId.equals(target.getId())) return true;
+        if (callerId == null) return false;
+        java.util.Set<String> callerFull = new java.util.HashSet<>();
+        for (ProgramAdmin pa : programAdminRepository.findByAdminUserId(callerId))
+            if (AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)) callerFull.add(pa.getProgramId());
+        return programAdminRepository.findByAdminUserId(target.getId()).stream().allMatch(pa -> callerFull.contains(pa.getProgramId()));
+    }
+
     private ZoneId programZone(Program program) {
         if (program != null && program.getTimezone() != null && !program.getTimezone().isBlank()) {
             try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
         }
         return ZoneId.of("America/New_York");
-    }
-
-    private boolean isWithinPollingWindow(AirportConfig config, LocalDate flightDate) {
-        if (config == null) return false;
-        LocalDate startDate = config.getPollingStartAsLocalDate();
-        OffsetDateTime endDatetime = config.getPollingEndAsOffsetDateTime();
-        if (startDate == null || endDatetime == null) return false;
-        return !flightDate.isBefore(startDate) && OffsetDateTime.now().isBefore(endDatetime);
     }
 
     @Operation(summary = "Delete participant", description = "Permanently deletes a participant. If their run becomes empty the run is also deleted; otherwise only their seat is freed.")
@@ -723,6 +799,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> deleteParticipant(@PathVariable String code) {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
 
         List<RunParticipant> participantRps =
             runParticipantRepository.findByIdParticipantId(p.getId());
@@ -756,12 +833,13 @@ public class AdminController {
 
     // ── Alert (singular path alias) ────────────────────────────────────────
 
-    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given BTL code")
+    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given registration code")
     @PostMapping("/alert/{btlCode}/resolve")
     public ResponseEntity<AdminDtos.SuccessResponse> resolveAlertSingular(
             @PathVariable String btlCode) {
         Participant p = participantRepository.findByBtlCode(btlCode)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+        adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
         p.setUpdatedAt(OffsetDateTime.now());
@@ -791,6 +869,7 @@ public class AdminController {
             @RequestBody UpdateRunRequest req) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         if (req.status() != null) {
             RunStatusEnum newStatus = RunStatusEnum.valueOf(req.status().toUpperCase());
             run.setStatus(newStatus);
@@ -814,6 +893,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> deleteRun(@PathVariable String runId) {
         Run run = runRepository.findByRunId(runId)
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + runId));
+        adminAccess.requireProgram(run.getProgramId());
         runRepository.delete(run);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -838,9 +918,17 @@ public class AdminController {
     @Transactional
     public ResponseEntity<Map<String, Object>> syncAirportRuns(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
-        int groupingWindowMins = airportConfigRepository.findByConfigKey("main")
+        Program syncProgram = programId != null ? programRepository.findById(programId).orElse(null) : null;
+        // The program's own grouping window (set at creation), else the global default.
+        int globalWindow = airportConfigRepository.findByConfigKey("main")
             .map(c -> c.getGroupingWindowMins() != null ? c.getGroupingWindowMins() : 90)
             .orElse(90);
+        int groupingWindowMins = globalWindow;
+        if (syncProgram != null && syncProgram.getRuleWindow() != null) {
+            try { groupingWindowMins = Integer.parseInt(syncProgram.getRuleWindow().trim()); }
+            catch (NumberFormatException ignored) { /* keep global default */ }
+        }
+        String airportLabel = ProgramDates.airportLabel(syncProgram);
 
         int arrivalRunsCreated = 0;
         int departureRunsCreated = 0;
@@ -949,13 +1037,7 @@ public class AdminController {
 
                 LocalDate conferenceDate = group.get(0).getSubmittedDatetime().toLocalDate();
 
-                ConferenceDay conferenceDay = switch (conferenceDate.getDayOfWeek()) {
-                    case THURSDAY -> ConferenceDay.THURSDAY;
-                    case FRIDAY   -> ConferenceDay.FRIDAY;
-                    case SATURDAY -> ConferenceDay.SATURDAY;
-                    case SUNDAY   -> ConferenceDay.SUNDAY;
-                    default       -> null;
-                };
+                ConferenceDay conferenceDay = ConferenceDay.of(conferenceDate.getDayOfWeek());
 
                 String dropoffLocation = group.stream()
                     .map(f -> f.getParticipant().getHotel())
@@ -966,9 +1048,9 @@ public class AdminController {
                 if (dropoffLocation.isBlank()) dropoffLocation = "Hotel";
 
                 String pickupLocation = direction == Direction.TO_HOTEL
-                    ? "Indianapolis Airport"
+                    ? airportLabel
                     : (dropoffLocation.isBlank() ? "Hotel" : dropoffLocation);
-                String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : "Indianapolis Airport";
+                String dropLocation = direction == Direction.TO_HOTEL ? dropoffLocation : airportLabel;
 
                 Run run = Run.builder()
                     .runId("RUN-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase())
@@ -1061,10 +1143,13 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> moveParticipant(@RequestBody MoveParticipantRequest req) {
         Participant p = participantRepository.findByBtlCode(req.btlCode())
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        adminAccess.requireProgram(p.getProgramId());
         Run from = runRepository.findByRunId(req.fromRunId())
             .orElseThrow(() -> new EntityNotFoundException("Source run not found: " + req.fromRunId()));
+        adminAccess.requireProgram(from.getProgramId());
         Run to = runRepository.findByRunId(req.toRunId())
             .orElseThrow(() -> new EntityNotFoundException("Target run not found: " + req.toRunId()));
+        adminAccess.requireProgram(to.getProgramId());
 
         if (req.fromRunId().equals(req.toRunId()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Source and target runs are the same.");
@@ -1183,6 +1268,7 @@ public class AdminController {
             @PathVariable Integer driverId) {
         Driver driver = driverRepository.findById(driverId)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+        adminAccess.requireProgram(driver.getProgramId());
         List<Run> runs = runRepository
             .findByDriverIdOrderByConferenceDateAscDepartTimeAsc(driverId);
         List<AdminDtos.RunAdminResponse> runResponses = runs.stream().map(run -> {
@@ -1205,13 +1291,16 @@ public class AdminController {
             @PathVariable Integer driverId) {
         Driver driver = driverRepository.findById(driverId)
             .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+        adminAccess.requireProgram(driver.getProgramId());
         List<Run> runs = runRepository
             .findByDriverIdOrderByConferenceDateAscDepartTimeAsc(driverId);
         if (runs.isEmpty()) {
             return ResponseEntity.ok(new AdminDtos.ManifestSendResponse(true, false, "no_runs"));
         }
         StringBuilder manifest = new StringBuilder();
-        manifest.append("BTL 2026 — Manifest for ").append(driver.getName()).append("\n\n");
+        manifest.append(com.btl.transport.notification.ProgramBranding.of(
+                driver.getProgramId() != null ? programRepository.findById(driver.getProgramId()).orElse(null) : null)
+            .subject("Manifest for " + driver.getName())).append("\n\n");
         for (Run run : runs) {
             manifest.append(run.getConferenceDate()).append(" ").append(run.getDepartTime())
                     .append(" | ").append(run.getDirection() != null
@@ -1300,15 +1389,17 @@ public class AdminController {
     @GetMapping("/config/notifications")
     public ResponseEntity<AdminDtos.NotificationConfigResponse> getNotificationConfig(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
-        NotificationConfig c = programId != null
-            ? notificationConfigRepository.findByProgramId(programId)
-                .orElseGet(() -> notificationConfigRepository.findByConfigKey("main").orElse(null))
-            : notificationConfigRepository.findByConfigKey("main").orElse(null);
+        NotificationConfig own = programId != null
+            ? notificationConfigRepository.findByProgramId(programId).orElse(null)
+            : null;
+        NotificationConfig c = own != null ? own : notificationConfigRepository.findByConfigKey("main").orElse(null);
         if (c == null) throw new EntityNotFoundException("Notification config not found");
+        // Help contacts are per program: never show the global default's contacts as a program's own.
+        boolean contacts = programId == null || own != null;
         return ResponseEntity.ok(new AdminDtos.NotificationConfigResponse(
-            c.getAdminPhone1(), c.getAdminPhone2(),
-            c.getAdminName1(), c.getAdminName2(),
-            c.getAdminWhatsapp1(), c.getAdminWhatsapp2(),
+            contacts ? c.getAdminPhone1() : null, contacts ? c.getAdminPhone2() : null,
+            contacts ? c.getAdminName1() : null, contacts ? c.getAdminName2() : null,
+            contacts ? c.getAdminWhatsapp1() : null, contacts ? c.getAdminWhatsapp2() : null,
             c.getReminderBeforeMins(),
             c.getTemplateRegistration(), c.getTemplatePickupReminder(),
             c.getTemplateShuttleReminder(), c.getTemplateDelayMinor(),
@@ -1538,6 +1629,17 @@ public class AdminController {
         );
     }
 
+    /** Whether the caller may see payment amounts for this program (cached for the request). */
+    private boolean amountsVisible(String programId) {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        String key = "btl.amountsVisible." + programId;
+        if (attrs != null && attrs.getAttribute(key, 0) instanceof Boolean b) return b;
+        Program prog = programId == null ? null : programRepository.findById(programId).orElse(null);
+        boolean v = com.btl.transport.payment.PaymentService.canSeeAmounts(prog, adminAccess.permissions());
+        if (attrs != null) attrs.setAttribute(key, v, 0);
+        return v;
+    }
+
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure) {
         return toParticipantAdminResponse(p, arrival, departure, false, false);
@@ -1556,7 +1658,10 @@ public class AdminController {
             toFlightDto(departure, p.getBtlCode()),
             boardedArrival,
             boardedDeparture,
-            p.getBreakoutGroup()
+            p.getBreakoutGroup(),
+            registrationFieldService.parseAnswers(p.getCustomAnswers()),
+            com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus()),
+            amountsVisible(p.getProgramId()) ? participantPaymentRepository.totalForParticipant(p.getId()) : null
         );
     }
 
@@ -1570,49 +1675,55 @@ public class AdminController {
     }
 
     private void sendDriverAccessEmail(Driver d, String driverLink) {
+        var brand = com.btl.transport.notification.ProgramBranding.of(
+            d.getProgramId() != null ? programRepository.findById(d.getProgramId()).orElse(null) : null);
         String plain = "Hi " + d.getName() + ",\n\n"
-            + "You have been added as a volunteer driver for Built to Last 2026.\n\n"
+            + "You have been added as a volunteer driver for " + brand.nameOrGeneric() + ".\n\n"
             + "Open your driver app here:\n" + driverLink + "\n\n"
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
-            + "Built to Last 2026 Transport Team";
+            + brand.teamName();
         try {
             ClassPathResource res =
                 new ClassPathResource("templates/email-driver-access.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", d.getName())
+                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(d.getName()))
                 .replace("{{driver_link}}", driverLink);
-            sendGridService.sendHtmlEmail(d.getEmail(), d.getName(), "Your Driver App Access", html, plain);
+            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
+            sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), html, plain);
         } catch (IOException e) {
             log.warn("Driver email HTML template not found, falling back to plain text");
-            sendGridService.sendEmail(d.getEmail(), d.getName(), "Your Driver App Access", plain);
+            sendGridService.sendEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), plain);
         }
     }
 
-    private void sendAdminWelcomeEmail(AdminUser u, String plainPassword) {
+    private void sendAdminWelcomeEmail(AdminUser u, String plainPassword, String programId) {
+        var brand = com.btl.transport.notification.ProgramBranding.of(
+            programId != null ? programRepository.findById(programId).orElse(null) : null);
         String displayName = u.getDisplayName() != null ? u.getDisplayName() : u.getUsername();
-        String roleLabel   = "ACCOMMODATION".equals(u.getRole()) ? "Accommodation Admin" : "Full Access";
+        String roleLabel   = AdminPermissions.label(AdminPermissions.parse(u.getRole()));
         String loginUrl    = frontendBaseUrl + "/admin/login";
         String plain = "Hi " + displayName + ",\n\n"
-            + "An admin account has been created for you on the Built to Last 2026 transport system.\n\n"
+            + "An admin account has been created for you for " + brand.nameOrGeneric() + ".\n\n"
             + "Username: " + u.getUsername() + "\n"
             + "Password: " + plainPassword + "\n"
             + "Role: " + roleLabel + "\n\n"
             + "Sign in here: " + loginUrl + "\n\n"
             + "Please change your password after your first sign-in (available in the sidebar).\n\n"
-            + "Built to Last 2026 Transport Team";
+            + brand.teamName();
         try {
             ClassPathResource res =
                 new ClassPathResource("templates/email-admin-welcome.html");
             String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", displayName)
-                .replace("{{username}}", u.getUsername())
+                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(displayName))
+                .replace("{{username}}", com.btl.transport.notification.ProgramBranding.escape(u.getUsername()))
                 .replace("{{password}}", plainPassword)
                 .replace("{{role}}", roleLabel)
                 .replace("{{login_url}}", loginUrl);
-            sendGridService.sendHtmlEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", html, plain);
+            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
+            sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), html, plain);
         } catch (IOException e) {
             log.warn("Admin welcome email HTML template not found, falling back to plain text");
-            sendGridService.sendEmail(u.getEmail(), displayName, "Your Admin Access — Built to Last 2026", plain);
+            sendGridService.sendEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), plain);
         }
     }
 
@@ -1659,7 +1770,8 @@ public class AdminController {
         String password,
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
         String role,
-        String email
+        String email,
+        java.util.List<String> permissions
     ) {}
 
     @Operation(summary = "List admin users", description = "Returns all admin users belonging to the program specified in X-Program-Id")
@@ -1667,17 +1779,21 @@ public class AdminController {
     public ResponseEntity<List<Map<String, Object>>> listAdminUsers(
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
         if (programId == null) return ResponseEntity.ok(List.of());
-        return ResponseEntity.ok(adminUserRepository.findByProgramIdOrderByCreatedAtAsc(programId)
-            .stream().map(u -> {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id", u.getId());
-                m.put("username", u.getUsername());
-                m.put("display_name", u.getDisplayName());
-                m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
-                m.put("role", u.getRole());
-                m.put("email", u.getEmail());
-                return m;
-            }).toList());
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ProgramAdmin pa : programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId)) {
+            AdminUser u = adminUserRepository.findById(pa.getAdminUserId()).orElse(null);
+            if (u == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", u.getId());
+            m.put("username", u.getUsername());
+            m.put("display_name", u.getDisplayName());
+            m.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
+            m.put("role", pa.getRole());
+            m.put("permissions", AdminPermissions.parse(pa.getRole()));
+            m.put("email", u.getEmail());
+            out.add(m);
+        }
+        return ResponseEntity.ok(out);
     }
 
     @Operation(summary = "Create admin user", description = "Creates a new admin user with a bcrypt-hashed password and associates them with a program")
@@ -1689,19 +1805,29 @@ public class AdminController {
         if (req.username() == null || req.password() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "username and password required"));
         }
+        if (programId == null || programId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No program selected"));
+        }
+        if (usernameTaken(req.username().trim(), null)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
+        }
+        String newPerms = requestedPermissions(req.permissions(), req.role());
+        if (newPerms == null) return ResponseEntity.badRequest().body(Map.of("error", NO_PERMISSIONS));
         AdminUser user = AdminUser.builder()
             .programId(programId)
-            .username(req.username())
+            .username(req.username().trim())
             .passwordHash(bcrypt.encode(req.password()))
             .displayName(req.displayName())
             .createdAt(OffsetDateTime.now())
-            .role(req.role() != null ? req.role() : "FULL")
+            .role(newPerms)
             .email(req.email())
             .build();
         adminUserRepository.save(user);
+        programAdminRepository.save(ProgramAdmin.builder()
+            .adminUserId(user.getId()).programId(programId).role(user.getRole()).build());
         if (user.getEmail() != null && !user.getEmail().isBlank()) {
             try {
-                sendAdminWelcomeEmail(user, req.password());
+                sendAdminWelcomeEmail(user, req.password(), programId);
             } catch (Exception e) {
                 log.warn("Failed to send admin welcome email to {}", user.getEmail(), e);
             }
@@ -1711,6 +1837,7 @@ public class AdminController {
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("role", user.getRole());
+        result.put("permissions", AdminPermissions.parse(user.getRole()));
         result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
     }
@@ -1718,18 +1845,39 @@ public class AdminController {
     @Operation(summary = "Delete admin user", description = "Removes an admin user. Refuses to delete the last remaining user for a program")
     @DeleteMapping("/users/{id}")
     @Transactional
-    public ResponseEntity<AdminDtos.SuccessResponse> deleteAdminUser(
+    public ResponseEntity<?> deleteAdminUser(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @PathVariable Integer id) {
         AdminUser user = adminUserRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Admin user not found: " + id));
-        if (programId != null && !programId.equals(user.getProgramId())) {
-            return ResponseEntity.status(403).body(new AdminDtos.SuccessResponse(false));
-        }
-        if (programId != null && adminUserRepository.countByProgramId(programId) <= 1) {
+        if (programId == null) {
             return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
         }
-        adminUserRepository.delete(user);
+        ProgramAdmin membership = programAdminRepository.findByAdminUserIdAndProgramId(user.getId(), programId).orElse(null);
+        if (membership == null) {
+            return ResponseEntity.status(403).body(new AdminDtos.SuccessResponse(false));
+        }
+        if (isProgramCreator(programId, user.getId()) && !isCaller(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
+        }
+        if (programAdminRepository.countByProgramId(programId) <= 1) {
+            return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
+        }
+        // Never remove the program's last full admin.
+        if (AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
+                && programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream()
+                    .filter(pa -> AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)).count() <= 1) {
+            return ResponseEntity.badRequest().body(new AdminDtos.SuccessResponse(false));
+        }
+        programAdminRepository.delete(membership);
+        List<ProgramAdmin> remaining = programAdminRepository.findByAdminUserId(user.getId()).stream()
+            .filter(pa -> !pa.getId().equals(membership.getId())).toList();
+        if (remaining.isEmpty()) {
+            adminUserRepository.delete(user);  // no programs left — remove the account
+        } else if (programId.equals(user.getProgramId())) {
+            user.setProgramId(remaining.get(0).getProgramId());
+            adminUserRepository.save(user);
+        }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
 
@@ -1738,7 +1886,8 @@ public class AdminController {
         @com.fasterxml.jackson.annotation.JsonProperty("display_name") String displayName,
         @com.fasterxml.jackson.annotation.JsonProperty("new_password") String newPassword,
         String role,
-        String email
+        String email,
+        java.util.List<String> permissions
     ) {}
 
     @Operation(summary = "Update admin user", description = "Updates an admin user's username, display name, and/or password")
@@ -1750,10 +1899,28 @@ public class AdminController {
             @RequestBody UpdateAdminUserRequest req) {
         AdminUser user = adminUserRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Admin user not found: " + id));
-        if (programId != null && !programId.equals(user.getProgramId())) {
+        ProgramAdmin membership = programId == null ? null
+            : programAdminRepository.findByAdminUserIdAndProgramId(user.getId(), programId).orElse(null);
+        if (membership == null) {
             return ResponseEntity.status(403).body(Map.of("error", "forbidden"));
         }
+        boolean credentialChange =
+            (req.username() != null && !req.username().isBlank() && !req.username().trim().equals(user.getUsername()))
+            || (req.newPassword() != null && !req.newPassword().isBlank())
+            || (req.email() != null && !java.util.Objects.equals(req.email().isBlank() ? null : req.email().trim(), user.getEmail()))
+            || (req.displayName() != null && !java.util.Objects.equals(req.displayName().isBlank() ? null : req.displayName().trim(), user.getDisplayName()));
+        // The creator's own sign-in details are theirs alone (otherwise a password reset would undo the protection).
+        if (credentialChange && isProgramCreator(programId, user.getId()) && !isCaller(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
+        }
+        if (credentialChange && !mayChangeCredentials(user)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error",
+                "This admin also belongs to programs you don't run, so only they can change their name, email, username or password. You can still change their permissions here."));
+        }
         if (req.username() != null && !req.username().isBlank()) {
+            if (usernameTaken(req.username().trim(), user.getId())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
+            }
             user.setUsername(req.username().trim());
         }
         if (req.displayName() != null) {
@@ -1762,8 +1929,23 @@ public class AdminController {
         if (req.newPassword() != null && !req.newPassword().isBlank()) {
             user.setPasswordHash(bcrypt.encode(req.newPassword()));
         }
-        if (req.role() != null && !req.role().isBlank()) {
-            user.setRole(req.role());
+        if (req.permissions() != null || (req.role() != null && !req.role().isBlank())) {
+            String perms = requestedPermissions(req.permissions(), req.role());
+            if (perms == null) return ResponseEntity.badRequest().body(Map.of("error", NO_PERMISSIONS));
+            if (isProgramCreator(programId, user.getId()) && !isCaller(user)
+                    && !AdminPermissions.parse(perms).equals(AdminPermissions.parse(membership.getRole()))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", CREATOR_PROTECTED));
+            }
+            // Never leave a program without a full admin.
+            boolean losingFull = AdminPermissions.parse(membership.getRole()).contains(AdminPermissions.FULL)
+                && !AdminPermissions.parse(perms).contains(AdminPermissions.FULL);
+            if (losingFull && programAdminRepository.findByProgramIdOrderByCreatedAtAsc(programId).stream()
+                    .filter(pa -> AdminPermissions.parse(pa.getRole()).contains(AdminPermissions.FULL)).count() <= 1) {
+                return ResponseEntity.badRequest().body(Map.of("error", "A program needs at least one full admin"));
+            }
+            membership.setRole(perms);
+            programAdminRepository.save(membership);
+            if (programId.equals(user.getProgramId())) user.setRole(perms);
         }
         if (req.email() != null) {
             user.setEmail(req.email().isBlank() ? null : req.email().trim());
@@ -1779,9 +1961,17 @@ public class AdminController {
         result.put("username", user.getUsername());
         result.put("display_name", user.getDisplayName());
         result.put("created_at", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
-        result.put("role", user.getRole());
+        result.put("role", membership.getRole());
         result.put("email", user.getEmail());
         return ResponseEntity.ok(result);
+    }
+
+    /** Usernames are global (login is account-based). Also reserves YAML super-admin names. */
+    private boolean usernameTaken(String username, Integer exceptUserId) {
+        if (adminProperties.getUsers().stream().anyMatch(u -> username.equalsIgnoreCase(u.getUsername()))) return true;
+        return adminUserRepository.findAll().stream()
+            .anyMatch(u -> u.getUsername() != null && u.getUsername().equalsIgnoreCase(username)
+                && (exceptUserId == null || !u.getId().equals(exceptUserId)));
     }
 
     @SuppressWarnings("unchecked")
@@ -2027,6 +2217,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateRoomRequest req) {
         RoomAssignment room = roomAssignmentRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
         if (req.gender()   != null) room.setGender(req.gender().isEmpty() ? null : req.gender());
         if (req.roomType() != null) room.setRoomType(req.roomType());
         if (req.notes()    != null) room.setNotes(req.notes().isEmpty() ? null : req.notes());
@@ -2051,6 +2242,7 @@ public class AdminController {
     @DeleteMapping("/room-assignments/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteRoom(@PathVariable Integer id) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomAssignmentRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2064,6 +2256,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpsertOccupantRequest req) {
         RoomAssignment room = roomAssignmentRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
 
         RoomOccupant occ = roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .orElseGet(() -> RoomOccupant.builder().room(room).slot(slot).name("").build());
@@ -2098,6 +2291,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.SuccessResponse> removeOccupant(
             @PathVariable Integer id,
             @PathVariable Short slot) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .ifPresent(roomOccupantRepository::delete);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -2110,6 +2304,7 @@ public class AdminController {
             @PathVariable Integer id,
             @PathVariable Short slot,
             @RequestBody AdminDtos.ToggleTicketRequest req) {
+        roomAssignmentRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         roomOccupantRepository.findByRoomIdAndSlot(id, slot)
             .ifPresent(occ -> {
                 occ.setTicketReceived(req.received());
@@ -2131,6 +2326,8 @@ public class AdminController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Occupant not found"));
         RoomAssignment toRoom = roomAssignmentRepository.findById(req.toRoomId())
             .orElseThrow(() -> new EntityNotFoundException("Target room not found: " + req.toRoomId()));
+        roomAssignmentRepository.findById(req.fromRoomId()).ifPresent(r -> adminAccess.requireProgram(r.getProgramId()));
+        adminAccess.requireProgram(toRoom.getProgramId());
 
         int capacity = roomCapacity(toRoom.getRoomType());
         short targetSlot = -1;
@@ -2169,7 +2366,7 @@ public class AdminController {
                     notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
                         room.getRoomLabel(), room.getRoomType(), others);
                 } else {
-                    notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+                    notificationService.sendRoomAssignment(room.getProgramId(), occ.getName(), email, room.getHotelName(),
                         room.getRoomLabel(), room.getRoomType(), others);
                 }
                 sent++;
@@ -2199,6 +2396,7 @@ public class AdminController {
             @RequestHeader(value = "X-Program-Id", required = false) String programId) {
         RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(id)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + id));
+        adminAccess.requireProgram(room.getProgramId());
         Program program = programRepository.findById(room.getProgramId())
             .orElseThrow(() -> new EntityNotFoundException("Program not found: " + room.getProgramId()));
         boolean roommateVisible = program.getRoommateVisible() != null ? program.getRoommateVisible() : true;
@@ -2213,6 +2411,7 @@ public class AdminController {
             @PathVariable Short slot) {
         RoomAssignment room = roomAssignmentRepository.findByIdWithOccupants(roomId)
             .orElseThrow(() -> new EntityNotFoundException("Room not found: " + roomId));
+        adminAccess.requireProgram(room.getProgramId());
         RoomOccupant occ = room.getOccupants().stream()
             .filter(o -> slot.equals(o.getSlot()))
             .findFirst()
@@ -2233,7 +2432,7 @@ public class AdminController {
             notificationService.sendRoomAssignment(occ.getParticipant(), room.getHotelName(),
                 room.getRoomLabel(), room.getRoomType(), others);
         } else {
-            notificationService.sendRoomAssignment(occ.getName(), email, room.getHotelName(),
+            notificationService.sendRoomAssignment(room.getProgramId(), occ.getName(), email, room.getHotelName(),
                 room.getRoomLabel(), room.getRoomType(), others);
         }
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
@@ -2339,6 +2538,7 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateAccomContactRequest req) {
         AccommodationContact contact = accommodationContactRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Contact not found: " + id));
+        adminAccess.requireProgram(contact.getProgramId());
         if (req.name()     != null) contact.setName(req.name());
         if (req.phone()    != null) contact.setPhone(req.phone().isEmpty() ? null : req.phone());
         if (req.whatsapp() != null) contact.setWhatsapp(req.whatsapp().isEmpty() ? null : req.whatsapp());
@@ -2350,6 +2550,7 @@ public class AdminController {
     @DeleteMapping("/accommodation-contacts/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteAccomContact(@PathVariable Integer id) {
+        accommodationContactRepository.findById(id).ifPresent(x -> adminAccess.requireProgram(x.getProgramId()));
         accommodationContactRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2415,13 +2616,17 @@ public class AdminController {
     @GetMapping("/programs")
     public ResponseEntity<List<AdminDtos.ProgramResponse>> listPrograms(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String programId = null;
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            programId = jwtService.extractProgramId(authHeader.substring(7));
+        List<Program> programs;
+        if (adminAccess.isSuper()) {
+            programs = programRepository.findAllByOrderByCreatedAtDesc();
+        } else {
+            Integer userId = adminAccess.currentUserId();
+            Set<String> ids = userId == null ? Set.of()
+                : programAdminRepository.findByAdminUserId(userId).stream()
+                    .map(ProgramAdmin::getProgramId).collect(java.util.stream.Collectors.toSet());
+            programs = programRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(p -> ids.contains(p.getId())).toList();
         }
-        List<Program> programs = programId != null
-            ? programRepository.findById(programId).map(List::of).orElse(List.of())
-            : programRepository.findAllByOrderByCreatedAtDesc();
         return ResponseEntity.ok(programs.stream().map(this::toProgramDto).toList());
     }
 
@@ -2430,15 +2635,25 @@ public class AdminController {
     @Transactional
     public ResponseEntity<AdminDtos.ProgramResponse> createProgram(
             @RequestBody AdminDtos.CreateProgramRequest req) {
-        if (req.ini() != null && !req.ini().isBlank() && programRepository.existsByIni(req.ini())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Program ini '" + req.ini() + "' is already in use");
+        // Never let a create overwrite an existing program (JPA save() on an existing id is an update).
+        if (req.id() != null && programRepository.existsById(req.id())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Program id '" + req.id() + "' is already in use");
+        }
+        // Short codes are global; with open sign-up collisions are common (two "Youth Camp" → "YC"),
+        // so pick the next free variant (YC, YC2, YC3, …) instead of failing the create.
+        String ini = req.ini();
+        if (ini != null && !ini.isBlank() && programRepository.existsByIni(ini)) {
+            String base = ini;
+            int n = 2;
+            while (programRepository.existsByIni(base + n)) n++;
+            ini = base + n;
         }
         String rulesJson = rulesJson(req.rules());
         Map<String, Object> rules = parseRules(rulesJson);
         Program p = Program.builder()
             .id(req.id() != null ? req.id() : "p_" + System.currentTimeMillis())
             .name(req.name())
-            .ini(req.ini())
+            .ini(ini)
             .type(req.type() != null ? req.type() : "Conference")
             .startDate(req.startDate())
             .endDate(req.endDate())
@@ -2449,7 +2664,11 @@ public class AdminController {
             .city(req.city())
             .state(req.state())
             .logoUrl(req.logoUrl())
+            .bannerUrl(req.bannerUrl())
             .hotelSelectionEnabled(req.hotelSelectionEnabled() != null ? req.hotelSelectionEnabled() : true)
+            .dailyShuttleEnabled(!Boolean.FALSE.equals(req.dailyShuttleEnabled()))
+            .airportPickupsEnabled(!Boolean.FALSE.equals(req.airportPickupsEnabled()))
+            .lodgingType(Program.normalizeLodgingType(req.lodgingType()))
             .timezone(req.timezone() != null ? req.timezone() : "America/New_York")
             .registrationOpen(true)
             .hotels(toJsonString(req.hotels()))
@@ -2461,7 +2680,16 @@ public class AdminController {
             .createdAt(OffsetDateTime.now())
             .updatedAt(OffsetDateTime.now())
             .build();
+        Integer creatorId = adminAccess.currentUserId();
+        p.setCreatedByAdminId(creatorId);
         programRepository.save(p);
+        if (creatorId != null) {
+            programAdminRepository.save(ProgramAdmin.builder()
+                .adminUserId(creatorId).programId(p.getId()).role("FULL").build());
+            adminUserRepository.findById(creatorId).ifPresent(u -> {
+                if (u.getProgramId() == null) { u.setProgramId(p.getId()); adminUserRepository.save(u); }
+            });
+        }
         syncProgramHotels(p.getId(), req.hotels());
         notificationConfigRepository.findByProgramId(p.getId()).orElseGet(() -> {
             NotificationConfig nc = new NotificationConfig();
@@ -2479,6 +2707,19 @@ public class AdminController {
             @RequestBody AdminDtos.UpdateProgramRequest req) {
         Program p = programRepository.findById(id)
             .orElseThrow(() -> new EntityNotFoundException("Program not found: " + id));
+        // Accommodation admins reach this endpoint only to save the hotel list (AdminPermissions).
+        if (!adminAccess.isFull()) {
+            for (var c : req.getClass().getRecordComponents()) {
+                if (c.getName().equals("hotels")) continue;
+                try {
+                    if (c.getAccessor().invoke(req) != null) {
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only change the hotel list");
+                    }
+                } catch (ReflectiveOperationException e) {
+                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only change the hotel list");
+                }
+            }
+        }
         if (req.name()      != null) p.setName(req.name());
         if (req.type()      != null) p.setType(req.type());
         if (req.startDate() != null) p.setStartDate(req.startDate());
@@ -2490,7 +2731,26 @@ public class AdminController {
         if (req.city()      != null) p.setCity(req.city());
         if (req.state()     != null) p.setState(req.state());
         if (req.logoUrl()   != null) p.setLogoUrl(req.logoUrl());
+        if (req.bannerUrl() != null) p.setBannerUrl(req.bannerUrl().isBlank() ? null : req.bannerUrl());
         if (req.hotelSelectionEnabled() != null) p.setHotelSelectionEnabled(req.hotelSelectionEnabled());
+        if (req.dailyShuttleEnabled()   != null) p.setDailyShuttleEnabled(req.dailyShuttleEnabled());
+        if (req.airportPickupsEnabled() != null) p.setAirportPickupsEnabled(req.airportPickupsEnabled());
+        if (req.lodgingType()           != null) p.setLodgingType(Program.normalizeLodgingType(req.lodgingType()));
+        if (req.venueDepartureRule()    != null) p.setVenueDepartureRule(req.venueDepartureRule());
+        if (req.registrationFee()       != null) {
+            if (req.registrationFee().signum() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Fee can't be negative");
+            p.setRegistrationFee(req.registrationFee().signum() == 0 ? null : req.registrationFee());
+        }
+        if (req.feeCurrency()           != null && req.feeCurrency().trim().matches("[A-Za-z]{3}")) {
+            p.setFeeCurrency(req.feeCurrency().trim().toUpperCase());
+        }
+        if (req.venueDepartureCutoff()  != null) {
+            if (ProgramDates.parseTime(req.venueDepartureCutoff()) == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cutoff must be a time like 10:30");
+            }
+            p.setVenueDepartureCutoff(ProgramDates.parseTime(req.venueDepartureCutoff())
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")));
+        }
         if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
         if (req.regTitle()       != null) p.setRegTitle(req.regTitle().isBlank() ? null : req.regTitle());
         if (req.regDescription() != null) p.setRegDescription(req.regDescription().isBlank() ? null : req.regDescription());
@@ -2517,6 +2777,12 @@ public class AdminController {
     @DeleteMapping("/programs/{id}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteProgram(@PathVariable String id) {
+        for (AdminUser u : adminUserRepository.findByProgramIdOrderByCreatedAtAsc(id)) {
+            String next = programAdminRepository.findByAdminUserId(u.getId()).stream()
+                .map(ProgramAdmin::getProgramId).filter(pid -> !pid.equals(id)).findFirst().orElse(null);
+            u.setProgramId(next);
+            adminUserRepository.save(u);
+        }
         programRepository.deleteById(id);
         return ResponseEntity.ok(new AdminDtos.SuccessResponse(true));
     }
@@ -2526,7 +2792,7 @@ public class AdminController {
             p.getId(), p.getName(), p.getIni(), p.getType(),
             p.getStartDate(), p.getEndDate(), p.getPhase(),
             p.getVenue(), p.getVenueAddr(), p.getAirport(),
-            p.getCity(), p.getState(), p.getLogoUrl(),
+            p.getCity(), p.getState(), p.getLogoUrl(), p.getBannerUrl(),
             p.getHotelSelectionEnabled() != null ? p.getHotelSelectionEnabled() : true,
             p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
             p.getRegTitle(),
@@ -2546,6 +2812,14 @@ public class AdminController {
             p.getShowNotifyParticipants()   != null ? p.getShowNotifyParticipants()   : true,
             p.getShowExportRecipients()     != null ? p.getShowExportRecipients()     : true,
             p.getBreakoutNumGroups()        != null ? p.getBreakoutNumGroups()        : 7,
+            !Boolean.FALSE.equals(p.getDailyShuttleEnabled()),
+            !Boolean.FALSE.equals(p.getAirportPickupsEnabled()),
+            Program.normalizeLodgingType(p.getLodgingType()),
+            p.getRegistrationFee(),
+            p.getFeeCurrency() != null ? p.getFeeCurrency() : "USD",
+            Boolean.TRUE.equals(p.getVenueDepartureRule()),
+            ProgramDates.venueDepartureCutoff(p) != null ? ProgramDates.venueDepartureCutoff(p).toString()
+                : (p.getVenueDepartureCutoff() != null ? p.getVenueDepartureCutoff() : "10:30"),
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null
         );
     }

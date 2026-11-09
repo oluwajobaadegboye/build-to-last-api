@@ -21,42 +21,42 @@ class Leg4CalculatorServiceTest {
     }
 
     @Test
-    void departure_before_cutoff_picks_up_from_church() {
+    void departure_before_cutoff_picks_up_from_lodging() {
         assertThat(service.calculate(LocalTime.of(9, 0), null, defaultCutoff))
+            .isEqualTo(Leg4PickupFrom.HOTEL);
+    }
+
+    @Test
+    void departure_after_cutoff_picks_up_from_venue() {
+        assertThat(service.calculate(LocalTime.of(14, 0), null, defaultCutoff))
             .isEqualTo(Leg4PickupFrom.CHURCH);
     }
 
     @Test
-    void departure_after_cutoff_picks_up_from_hotel() {
-        assertThat(service.calculate(LocalTime.of(14, 0), null, defaultCutoff))
-            .isEqualTo(Leg4PickupFrom.HOTEL);
-    }
-
-    @Test
-    void departure_at_exact_cutoff_picks_up_from_hotel() {
+    void departure_at_exact_cutoff_picks_up_from_venue() {
         assertThat(service.calculate(LocalTime.of(10, 30), null, defaultCutoff))
-            .isEqualTo(Leg4PickupFrom.HOTEL);
+            .isEqualTo(Leg4PickupFrom.CHURCH);
     }
 
     @Test
     void hotel_custom_cutoff_overrides_default() {
         Hotel hotel = Hotel.builder().leg4CutoffTime("12:00").build();
-        // Departure at 11:00 is before 12:00 hotel cutoff → CHURCH
+        // Departure at 11:00 is before the 12:00 hotel cutoff → leaves from the hotel
         assertThat(service.calculate(LocalTime.of(11, 0), hotel, defaultCutoff))
-            .isEqualTo(Leg4PickupFrom.CHURCH);
+            .isEqualTo(Leg4PickupFrom.HOTEL);
     }
 
     @Test
-    void hotel_custom_cutoff_after_departure_gives_hotel() {
+    void hotel_custom_cutoff_before_departure_gives_venue() {
         Hotel hotel = Hotel.builder().leg4CutoffTime("08:00").build();
-        // Departure at 10:00 is after 08:00 hotel cutoff → HOTEL
+        // Departure at 10:00 is after the 08:00 hotel cutoff → picked up at the venue
         assertThat(service.calculate(LocalTime.of(10, 0), hotel, defaultCutoff))
-            .isEqualTo(Leg4PickupFrom.HOTEL);
+            .isEqualTo(Leg4PickupFrom.CHURCH);
     }
 
     @Test
     void null_hotel_falls_back_to_default_cutoff() {
         assertThat(service.calculate(LocalTime.of(9, 0), null, defaultCutoff))
-            .isEqualTo(Leg4PickupFrom.CHURCH);
+            .isEqualTo(Leg4PickupFrom.HOTEL);
     }
 }

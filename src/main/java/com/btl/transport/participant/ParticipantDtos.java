@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class ParticipantDtos {
 
@@ -83,7 +84,10 @@ public final class ParticipantDtos {
         @JsonProperty("boarded_arrival") boolean boardedArrival,
         @JsonProperty("boarded_departure") boolean boardedDeparture,
         @JsonProperty("breakout_group") Integer breakoutGroup
-    ) {}
+    ) {
+        /** Neutral alias for btl_code (the registration code). */
+        @JsonProperty("code") public String code() { return btlCode; }
+    }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record FlightDto(
@@ -120,7 +124,14 @@ public final class ParticipantDtos {
         String state,
         @JsonProperty("logo_url") String logoUrl,
         @JsonProperty("start_date") String startDate,
-        @JsonProperty("end_date") String endDate
+        @JsonProperty("end_date") String endDate,
+        String airport,
+        String venue,
+        @JsonProperty("daily_shuttle_enabled") boolean dailyShuttleEnabled,
+        @JsonProperty("airport_pickups_enabled") boolean airportPickupsEnabled,
+        @JsonProperty("lodging_type") String lodgingType,
+        /** IANA zone, e.g. "America/Chicago" — "today" for the attendee is the program's today */
+        String timezone
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -148,6 +159,10 @@ public final class ParticipantDtos {
         List<RunDto> runs,
         @JsonProperty("program") ProgramInfoDto program,
         @JsonProperty("room") RoomDto room,
-        @JsonProperty("generated_at") String generatedAt
+        @JsonProperty("generated_at") String generatedAt,
+        /** Every active souvenir item: name, the attendee's choice and whether they've collected it. */
+        @JsonProperty("souvenirs") List<Map<String, Object>> souvenirs,
+        /** Status, paid, fee, balance — only when the program shows payment to attendees; else null. */
+        @JsonProperty("payment") Map<String, Object> payment
     ) {}
 }

@@ -26,8 +26,18 @@ public class SendGridService {
     private String fromName;
 
     public void sendEmail(String toEmail, String toName, String subject, String body) {
+        sendEmailAs(null, toEmail, toName, subject, body);
+    }
+
+    public void sendHtmlEmail(String toEmail, String toName, String subject,
+                              String htmlBody, String plainBody) {
+        sendHtmlEmailAs(null, toEmail, toName, subject, htmlBody, plainBody);
+    }
+
+    /** Sends as {@code senderName} (e.g. the program's name); null/blank uses the configured default. */
+    public void sendEmailAs(String senderName, String toEmail, String toName, String subject, String body) {
         try {
-            Mail mail = new Mail(new Email(fromEmail, fromName), subject,
+            Mail mail = new Mail(new Email(fromEmail, sender(senderName)), subject,
                 new Email(toEmail, toName), new Content("text/plain", body));
             send(mail, toEmail, subject);
         } catch (Exception e) {
@@ -35,11 +45,12 @@ public class SendGridService {
         }
     }
 
-    public void sendHtmlEmail(String toEmail, String toName, String subject,
-                              String htmlBody, String plainBody) {
+    /** Sends as {@code senderName} (e.g. the program's name); null/blank uses the configured default. */
+    public void sendHtmlEmailAs(String senderName, String toEmail, String toName, String subject,
+                                String htmlBody, String plainBody) {
         try {
             Mail mail = new Mail();
-            mail.setFrom(new Email(fromEmail, fromName));
+            mail.setFrom(new Email(fromEmail, sender(senderName)));
             mail.setSubject(subject);
             Personalization personalization = new Personalization();
             personalization.addTo(new Email(toEmail, toName));
@@ -50,6 +61,10 @@ public class SendGridService {
         } catch (Exception e) {
             log.error("SendGrid send failed — to={} subject={}", toEmail, subject, e);
         }
+    }
+
+    private String sender(String senderName) {
+        return senderName != null && !senderName.isBlank() ? senderName.trim() : fromName;
     }
 
     private void send(Mail mail, String toEmail, String subject) throws Exception {

@@ -110,6 +110,14 @@ public class FlightService {
         log.info("Polling window closed — {} flights deactivated", active.size());
     }
 
+    /** Stops tracking flights whose program is outside its tracking window (or has no airport pickups). */
+    @Transactional
+    public void stopTracking(List<Flight> flights) {
+        flights.forEach(f -> f.setPollingActive(false));
+        flightRepository.saveAll(flights);
+        log.info("Stopped tracking {} flights outside their program's tracking window", flights.size());
+    }
+
     @Transactional
     public void deactivatePastDayFlights(OffsetDateTime startOfToday) {
         List<Flight> stale = flightRepository.findStaleActiveFlights(startOfToday);
