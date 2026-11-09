@@ -62,6 +62,7 @@ public class ProgramOpsController {
         @JsonProperty("show_payment_to_attendees") Boolean showPaymentToAttendees,
         @JsonProperty("registrations_see_amounts") Boolean registrationsSeeAmounts,
         @JsonProperty("payment_emails_enabled") Boolean paymentEmailsEnabled,
+        @JsonProperty("show_breakout_group") Boolean showBreakoutGroup,
         /** "YYYY-MM-DDTHH:mm" in the program's timezone; "" clears */
         @JsonProperty("registration_closes_at") String registrationClosesAt,
         /** 0 clears */
@@ -74,6 +75,7 @@ public class ProgramOpsController {
         m.put("show_payment_to_attendees", Boolean.TRUE.equals(p.getShowPaymentToAttendees()));
         m.put("registrations_see_amounts", !Boolean.FALSE.equals(p.getRegistrationsSeeAmounts()));
         m.put("payment_emails_enabled", Boolean.TRUE.equals(p.getPaymentEmailsEnabled()));
+        m.put("show_breakout_group", !Boolean.FALSE.equals(p.getShowBreakoutGroup()));
         m.put("registration_closes_at", p.getRegistrationClosesAt());
         m.put("max_registrations", p.getMaxRegistrations());
         m.put("registered", registered);
@@ -88,7 +90,7 @@ public class ProgramOpsController {
         return policies(program(id));
     }
 
-    @Operation(summary = "Update program policies", description = "Payment visibility, payment emails, registration close date and capacity")
+    @Operation(summary = "Update program policies", description = "Payment visibility, payment emails, breakout group visibility, registration close date and capacity")
     @PatchMapping("/programs/{id}/policies")
     @Transactional
     public Map<String, Object> updatePolicies(@PathVariable String id, @RequestBody PoliciesRequest req) {
@@ -96,6 +98,7 @@ public class ProgramOpsController {
         if (req.showPaymentToAttendees() != null) p.setShowPaymentToAttendees(req.showPaymentToAttendees());
         if (req.registrationsSeeAmounts() != null) p.setRegistrationsSeeAmounts(req.registrationsSeeAmounts());
         if (req.paymentEmailsEnabled() != null) p.setPaymentEmailsEnabled(req.paymentEmailsEnabled());
+        if (req.showBreakoutGroup() != null) p.setShowBreakoutGroup(req.showBreakoutGroup());
         if (req.registrationClosesAt() != null) {
             String v = req.registrationClosesAt().trim();
             if (v.isEmpty()) p.setRegistrationClosesAt(null);

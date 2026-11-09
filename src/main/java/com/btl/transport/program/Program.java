@@ -191,6 +191,11 @@ public class Program {
     @Builder.Default
     private Integer breakoutNumGroups = 7;
 
+    /** Attendees see their breakout group on their status page. */
+    @Column(name = "show_breakout_group", nullable = false)
+    @Builder.Default
+    private Boolean showBreakoutGroup = true;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

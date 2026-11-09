@@ -260,6 +260,14 @@ public class ParticipantController {
         return ResponseEntity.ok(new UpdateFlightResponse(true, req.btlCode(), "Flight updated successfully"));
     }
 
+    /** The program may hide breakout groups from attendees (they stay visible to admins). */
+    private boolean showsBreakoutGroup(String programId) {
+        if (programId == null) return true;
+        return programRepository.findById(programId)
+            .map(prog -> !Boolean.FALSE.equals(prog.getShowBreakoutGroup()))
+            .orElse(true);
+    }
+
     // ── GET /api/v1/participant-status ────────────────────────────────────
     @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their registration code")
     @GetMapping("/participant-status")
@@ -294,7 +302,7 @@ public class ParticipantController {
             p.getProgramId(),
             boardedArrival,
             boardedDeparture,
-            p.getBreakoutGroup()
+            showsBreakoutGroup(p.getProgramId()) ? p.getBreakoutGroup() : null
         );
 
         List<Run> participantRuns = getRunsForParticipant(p.getId());
