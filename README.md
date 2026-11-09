@@ -183,19 +183,16 @@ aws ecs update-service \
   --region us-east-2
 ```
 
-## Switching the Vercel Frontend
+## Vercel Frontend Environment Variables
 
-Change one environment variable in Vercel:
+The frontend talks to this backend only. Set these two in Vercel (Production and Preview), then redeploy:
 
 ```
-# Before (n8n)
-VITE_API_BASE_URL=https://your-n8n.railway.app/webhook
-
-# After (Spring Boot)
-VITE_API_BASE_URL=https://transport.btl2026.com/api/v1
+VITE_API_BASE_URL=https://transport.btl2026.com/api/v1   # full URL (dev: dev-transport…, test: test-transport…)
+VITE_USE_MOCK_DATA=false
 ```
 
-Response shapes are preserved exactly — the frontend needs no code changes.
+Secrets (database, JWT, SendGrid, AviationStack) belong to this backend, never in `VITE_` variables — those are bundled into public JavaScript.
 
 Test each endpoint individually before switching production traffic:
 ```bash
