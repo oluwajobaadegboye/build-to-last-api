@@ -125,7 +125,20 @@ public class PaymentService {
         if (summary.get("fee") != null) body.append("Balance: ").append(money(summary.get("balance"), cur)).append("\n");
         body.append("Status: ").append(label(String.valueOf(summary.get("status")))).append("\n\n")
             .append("Your registration code: ").append(p.getBtlCode()).append("\n\n").append(brand.teamName());
-        sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment received"), body.toString());
+        String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            .title("Payment received")
+            .preheader("We've received " + money(amount, cur) + " for " + brand.nameOrGeneric())
+            .greeting(p.getFullName())
+            .paragraph("We've received your payment of " + money(amount, cur) + " for " + brand.nameOrGeneric() + ". Thank you.")
+            .details("Payment summary", List.of(
+                com.btl.transport.notification.EmailLayout.row("This payment", money(amount, cur)),
+                com.btl.transport.notification.EmailLayout.row("Total paid", money(summary.get("total_paid"), cur)),
+                com.btl.transport.notification.EmailLayout.row("Balance", summary.get("fee") != null ? money(summary.get("balance"), cur) : null),
+                com.btl.transport.notification.EmailLayout.row("Status", label(String.valueOf(summary.get("status")))),
+                com.btl.transport.notification.EmailLayout.row("Registration code", p.getBtlCode())))
+            .footerNote("Keep this email as your receipt.")
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment received"), html, body.toString());
     }
 
     private static String label(String status) {
@@ -153,7 +166,18 @@ public class PaymentService {
                 .append("Paid so far: ").append(money(s.get("total_paid"), cur)).append("\n");
             if (s.get("fee") != null) body.append("Balance due: ").append(money(s.get("balance"), cur)).append("\n");
             body.append("\nIf you've already paid, please ignore this message.\n\n").append(brand.teamName());
-            sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), body.toString());
+            String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+                .title("Payment reminder")
+                .preheader(s.get("fee") != null ? "Balance due: " + money(s.get("balance"), cur) : "A reminder about your payment")
+                .greeting(p.getFullName())
+                .paragraph("This is a friendly reminder about your payment for " + brand.nameOrGeneric() + ".")
+                .details(null, List.of(
+                    com.btl.transport.notification.EmailLayout.row("Paid so far", money(s.get("total_paid"), cur)),
+                    com.btl.transport.notification.EmailLayout.row("Balance due", s.get("fee") != null ? money(s.get("balance"), cur) : null),
+                    com.btl.transport.notification.EmailLayout.row("Registration code", p.getBtlCode())))
+                .note("If you've already paid, please ignore this message.")
+                .html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), html, body.toString());
             sent++;
         }
         return sent;

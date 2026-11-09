@@ -7,11 +7,8 @@ import com.btl.transport.run.Run;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -69,14 +66,19 @@ public class NotificationService {
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateRegistration, DEFAULT_REGISTRATION), vars);
         if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), plainBody);
         if (p.getEmail() != null) {
-            String subject = brand.subject("Registration Confirmed");
-            String htmlTemplate = loadHtmlTemplate("email-registration.html");
-            if (htmlTemplate != null) {
-                sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), subject,
-                    renderTemplate(htmlTemplate, htmlVars(brand, vars)), plainBody);
-            } else {
-                sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), subject, plainBody);
-            }
+            String html = EmailLayout.forProgram(brand)
+                .title("You're registered")
+                .preheader("Your registration code is " + p.getBtlCode())
+                .greeting(p.getFullName())
+                .paragraph("Thanks for registering for " + brand.nameOrGeneric() + ". Your place is confirmed.")
+                .code("Your registration code", p.getBtlCode())
+                .paragraph("Keep this code handy. Use it any time to see " + vars.get("covers") + ".")
+                .button("View my registration", statusLink)
+                .details("Program details", programRows(brand))
+                .footerNote("You're receiving this because you registered for " + brand.nameOrGeneric() + ".")
+                .html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(),
+                brand.subject("Registration confirmed"), html, plainBody);
         }
     }
 
@@ -91,7 +93,14 @@ public class NotificationService {
             : textTemplate(p.getProgramId(), NotificationConfig::getTemplateDelayMinor, DEFAULT_DELAY_MINOR), vars);
         if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
         if (p.getEmail() != null) {
-            sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight Delay Update"), body);
+            String html = EmailLayout.forProgram(brand)
+                .title(major ? "Your flight has a major delay" : "Your flight is delayed")
+                .preheader(flightNumber + " is delayed by about " + delayMins + " minutes")
+                .text(withoutSignoff(body, brand), "this link")
+                .details(null, List.of(EmailLayout.row("Flight", flightNumber), EmailLayout.row("Delay", "About " + delayMins + " minutes")))
+                .button("View my pickup", frontendBaseUrl + "/status?code=" + p.getBtlCode())
+                .html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight delay update"), html, body);
         }
     }
 
@@ -110,7 +119,15 @@ public class NotificationService {
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateReschedule, DEFAULT_RESCHEDULE), vars);
         if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
         if (p.getEmail() != null) {
-            sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight Rescheduled"), body);
+            String html = EmailLayout.forProgram(brand)
+                .title("Your flight has been rescheduled")
+                .preheader(flightNumber + " now arrives " + vars.get("new_time"))
+                .text(withoutSignoff(body, brand), "your registration page")
+                .details(null, List.of(EmailLayout.row("Flight", flightNumber),
+                    EmailLayout.row("Was arriving", vars.get("old_time")), EmailLayout.row("Now arriving", vars.get("new_time"))))
+                .button("View my pickup", statusLink)
+                .html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight rescheduled"), html, body);
         }
     }
 
@@ -126,7 +143,14 @@ public class NotificationService {
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateCancellation, DEFAULT_CANCELLATION), vars);
         if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), body);
         if (p.getEmail() != null) {
-            sendGridService.sendEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight Cancellation"), body);
+            String html = EmailLayout.forProgram(brand)
+                .title("Your flight may be cancelled")
+                .preheader(flightNumber + " appears cancelled or changed")
+                .text(withoutSignoff(body, brand), "your registration page")
+                .details(null, List.of(EmailLayout.row("Flight", flightNumber), EmailLayout.row("Registration code", p.getBtlCode())))
+                .button("View my registration", statusLink)
+                .html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight cancellation"), html, body);
         }
     }
 
@@ -149,12 +173,6 @@ public class NotificationService {
         if (email == null) return;
         ProgramBranding brand = ProgramBranding.of(programOf(programId));
         String roommatesText = roommateNames.isEmpty() ? "" : String.join(", ", roommateNames);
-        String roommatesSection = roommateNames.isEmpty() ? "" :
-            "<tr><td style=\"padding:8px 24px 20px;\">" +
-            "<div style=\"height:1px;background:rgba(255,255,255,0.08);margin-bottom:12px;\"></div>" +
-            "<p style=\"margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.22em;text-transform:uppercase;color:#546475;\">Roommates</p>" +
-            "<p style=\"margin:0;font-size:13px;color:#CBD5E1;line-height:1.6;\">" + ProgramBranding.escape(roommatesText) + "</p>" +
-            "</td></tr>";
         Map<String, String> vars = new HashMap<>(brand.textVars());
         vars.put("name",       name);
         vars.put("hotel",      hotelName);
@@ -165,15 +183,23 @@ public class NotificationService {
         vars.put("btl_code",   code);
         String plainBody = renderTemplate(
             textTemplate(programId, NotificationConfig::getTemplateRoomAssignment, DEFAULT_ROOM_ASSIGNMENT), vars);
-        String subject = brand.subject("Your Room Assignment");
-        String htmlTemplate = loadHtmlTemplate("email-room-assignment.html");
-        if (htmlTemplate != null) {
-            Map<String, String> html = htmlVars(brand, vars);
-            html.put("roommates_section", roommatesSection);  // already escaped markup
-            sendGridService.sendHtmlEmailAs(brand.senderName(), email, name, subject, renderTemplate(htmlTemplate, html), plainBody);
-        } else {
-            sendGridService.sendEmailAs(brand.senderName(), email, name, subject, plainBody);
-        }
+        boolean hasCode = code != null && !code.isBlank();
+        String html = EmailLayout.forProgram(brand)
+            .title("Your room is ready")
+            .preheader(brand.lodgingLabel() + ": " + hotelName + ", room " + roomLabel)
+            .greeting(name)
+            .paragraph("Your room for " + brand.nameOrGeneric() + " has been assigned. Here are the details.")
+            .details("Your room", List.of(
+                EmailLayout.row(brand.lodgingLabel(), hotelName),
+                EmailLayout.row("Room", roomLabel),
+                EmailLayout.row("Room type", roomType == null || roomType.isBlank() ? roomType
+                    : Character.toUpperCase(roomType.charAt(0)) + roomType.substring(1)),
+                EmailLayout.row(roommateNames.size() == 1 ? "Roommate" : "Roommates", roommatesText)))
+            .paragraph(hasCode ? "You can see this, and " + vars.get("covers") + ", on your registration page." : "")
+            .button("View my registration", hasCode ? statusLink : null)
+            .details("Program details", programRows(brand))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), email, name, brand.subject("Your room assignment"), html, plainBody);
     }
 
     // ── Program lookups ────────────────────────────────────────────────────
@@ -192,12 +218,22 @@ public class NotificationService {
             .orElse(fallback);
     }
 
-    /** HTML placeholders: branding (escaped, incl. layout blocks) plus the message values, escaped. */
-    private static Map<String, String> htmlVars(ProgramBranding brand, Map<String, String> textVars) {
-        Map<String, String> html = new HashMap<>();
-        textVars.forEach((k, v) -> html.put(k, ProgramBranding.escape(v)));
-        html.putAll(brand.htmlVars());
-        return html;
+    /** The SMS-style texts end with "— Team name"; the email layout signs off itself, so drop it there. */
+    private static String withoutSignoff(String body, ProgramBranding brand) {
+        String sig = brand.teamName();
+        String t = body == null ? "" : body.trim();
+        for (String dash : new String[]{" — ", " - ", "\n— ", "\n"}) {
+            if (t.endsWith(dash + sig)) return t.substring(0, t.length() - (dash + sig).length()).trim();
+        }
+        return t;
+    }
+
+    /** Dates, venue and airport rows — only the ones the program has. */
+    private static List<String[]> programRows(ProgramBranding brand) {
+        return List.of(
+            EmailLayout.row("Dates", brand.dates()),
+            EmailLayout.row("Venue", brand.venueLine()),
+            EmailLayout.row("Airport", brand.airport()));
     }
 
     public void sendShuttleReminders(Run run, NotificationConfig config) {
@@ -229,16 +265,6 @@ public class NotificationService {
             .filter(tz -> tz != null && !tz.isBlank())
             .map(tz -> { try { return ZoneId.of(tz); } catch (Exception e) { return ZoneId.of("America/New_York"); } })
             .orElse(ZoneId.of("America/New_York"));
-    }
-
-    private String loadHtmlTemplate(String filename) {
-        try {
-            ClassPathResource resource = new ClassPathResource("templates/" + filename);
-            return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("HTML template {} not found, falling back to plain text", filename);
-            return null;
-        }
     }
 
     public String renderTemplate(String template, Map<String, String> vars) {

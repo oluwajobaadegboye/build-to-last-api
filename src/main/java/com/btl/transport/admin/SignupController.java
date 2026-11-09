@@ -143,10 +143,19 @@ public class SignupController {
 
     private void sendVerification(AdminUser u) {
         String link = frontendBaseUrl.replaceAll("/+$", "") + "/verify-email?token=" + u.getVerificationToken();
-        String body = "Hi " + (u.getDisplayName() != null ? u.getDisplayName() : u.getUsername()) + ",\n\n"
+        String who = u.getDisplayName() != null ? u.getDisplayName() : u.getUsername();
+        String body = "Hi " + who + ",\n\n"
             + "Confirm your email to finish setting up your ProgramHub account:\n\n" + link + "\n\n"
             + "If you didn't sign up, you can ignore this email.";
-        sendGridService.sendEmail(u.getEmail(), u.getDisplayName(), "Confirm your email", body);
+        String html = com.btl.transport.notification.EmailLayout.forPlatform()
+            .title("Confirm your email")
+            .preheader("One click to finish setting up your ProgramHub account")
+            .greeting(who)
+            .paragraph("Thanks for signing up. Confirm your email address to finish setting up your ProgramHub account.")
+            .button("Confirm email", link)
+            .note("If you didn't create a ProgramHub account, you can safely ignore this email.")
+            .html();
+        sendGridService.sendHtmlEmail(u.getEmail(), u.getDisplayName(), "Confirm your email", html, body);
     }
 
     private static String blankToNull(String s) {

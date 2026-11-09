@@ -50,7 +50,6 @@ import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -1682,18 +1681,19 @@ public class AdminController {
             + "Open your driver app here:\n" + driverLink + "\n\n"
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
             + brand.teamName();
-        try {
-            ClassPathResource res =
-                new ClassPathResource("templates/email-driver-access.html");
-            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(d.getName()))
-                .replace("{{driver_link}}", driverLink);
-            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
-            sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), html, plain);
-        } catch (IOException e) {
-            log.warn("Driver email HTML template not found, falling back to plain text");
-            sendGridService.sendEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), plain);
-        }
+        String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            .title("Your driver app is ready")
+            .preheader("Open your driver app to see your assigned runs")
+            .greeting(d.getName())
+            .paragraph("You've been added as a volunteer driver for " + brand.nameOrGeneric()
+                + ". Open your driver app to see the runs assigned to you.")
+            .button("Open driver app", driverLink)
+            .bullets("Good to know", List.of(
+                "Bookmark the link. It's your personal access to the driver app.",
+                "It's unique to you, so please don't share it.",
+                "Your coordinator can resend it any time."))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your driver app access"), html, plain);
     }
 
     private void sendAdminWelcomeEmail(AdminUser u, String plainPassword, String programId) {
@@ -1710,21 +1710,22 @@ public class AdminController {
             + "Sign in here: " + loginUrl + "\n\n"
             + "Please change your password after your first sign-in (available in the sidebar).\n\n"
             + brand.teamName();
-        try {
-            ClassPathResource res =
-                new ClassPathResource("templates/email-admin-welcome.html");
-            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(displayName))
-                .replace("{{username}}", com.btl.transport.notification.ProgramBranding.escape(u.getUsername()))
-                .replace("{{password}}", plainPassword)
-                .replace("{{role}}", roleLabel)
-                .replace("{{login_url}}", loginUrl);
-            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
-            sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), html, plain);
-        } catch (IOException e) {
-            log.warn("Admin welcome email HTML template not found, falling back to plain text");
-            sendGridService.sendEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), plain);
-        }
+        String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            .title("Your admin account is ready")
+            .preheader("Sign in to manage " + brand.nameOrGeneric())
+            .greeting(displayName)
+            .paragraph("An admin account has been created for you for " + brand.nameOrGeneric()
+                + ". Use these details to sign in.")
+            .details(null, List.of(
+                com.btl.transport.notification.EmailLayout.row("Username", u.getUsername()),
+                com.btl.transport.notification.EmailLayout.row("Temporary password", plainPassword),
+                com.btl.transport.notification.EmailLayout.row("Access", roleLabel)))
+            .button("Sign in", loginUrl)
+            .bullets("Next steps", List.of(
+                "Change your password after you sign in (it's in the sidebar).",
+                "Contact your coordinator if you have trouble signing in."))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your admin access"), html, plain);
     }
 
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {

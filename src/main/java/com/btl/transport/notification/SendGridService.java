@@ -7,7 +7,9 @@ import com.sendgrid.SendGrid;
 import com.sendgrid.helpers.mail.Mail;
 import com.sendgrid.helpers.mail.objects.Content;
 import com.sendgrid.helpers.mail.objects.Email;
+import com.sendgrid.helpers.mail.objects.ClickTrackingSetting;
 import com.sendgrid.helpers.mail.objects.Personalization;
+import com.sendgrid.helpers.mail.objects.TrackingSettings;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -68,6 +70,14 @@ public class SendGridService {
     }
 
     private void send(Mail mail, String toEmail, String subject) throws Exception {
+        // No click tracking: SendGrid would rewrite every link into a long tracking URL, which looks
+        // untrustworthy and routes one-time links (email confirmation, driver access) through a third party.
+        TrackingSettings tracking = new TrackingSettings();
+        ClickTrackingSetting click = new ClickTrackingSetting();
+        click.setEnable(false);
+        click.setEnableText(false);
+        tracking.setClickTrackingSetting(click);
+        mail.setTrackingSettings(tracking);
         log.info("Sending email — to={} subject={}", toEmail, subject);
         SendGrid sg = new SendGrid(apiKey);
         Request request = new Request();
