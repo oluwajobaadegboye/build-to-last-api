@@ -27,6 +27,17 @@ public class Participant {
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
+    /** Set by registration since first/last were split; older participants only have full_name. */
+    @Column(name = "first_name", length = 120)
+    private String firstName;
+
+    @Column(name = "last_name", length = 120)
+    private String lastName;
+
+    /** "male" | "female" | null (not asked or not answered) */
+    @Column(name = "gender", length = 10)
+    private String gender;
+
     @Column(name = "email")
     private String email;
 

@@ -204,6 +204,11 @@ public class Program {
     @Builder.Default
     private Boolean showBreakoutGroup = true;
 
+    /** Registration asks for gender (Male / Female, required). On unless the admin turns it off. */
+    @Column(name = "ask_gender", nullable = false)
+    @Builder.Default
+    private Boolean askGender = true;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

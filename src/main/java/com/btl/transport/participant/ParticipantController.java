@@ -148,6 +148,7 @@ public class ParticipantController {
         resp.put("reg_title",       program.getRegTitle());
         resp.put("reg_description", program.getRegDescription());
         resp.put("page_theme",      program.getPageTheme());
+        resp.put("ask_gender",      !Boolean.FALSE.equals(program.getAskGender()));
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }
@@ -204,10 +205,10 @@ public class ParticipantController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
         boolean shuttleOptIn = req.shuttleOptIn() == null || Boolean.TRUE.equals(req.shuttleOptIn());
+        Program regProgram = req.programId() != null ? programRepository.findById(req.programId()).orElse(null) : null;
         // Closed / full comes before answer checks, so people aren't asked to fix answers for a closed program.
         try {
-            participantService.assertRegistrationOpen(
-                req.programId() != null ? programRepository.findById(req.programId()).orElse(null) : null, req.email());
+            participantService.assertRegistrationOpen(regProgram, req.email());
         } catch (RegistrationClosedException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "registration_closed", "message", e.getMessage()));
         }
@@ -216,6 +217,25 @@ public class ParticipantController {
         Map<Integer, String> souvenirChoices;
         Map<String, String> answerErrors = new java.util.LinkedHashMap<>();
         Map<String, Object> validAnswers = Map.of();
+        // Name: first + last from current clients; older clients send only full_name.
+        boolean splitName = req.firstName() != null || req.lastName() != null;
+        String firstName = PersonName.clean(req.firstName()), lastName = PersonName.clean(req.lastName());
+        String fullName = splitName ? PersonName.join(firstName, lastName) : PersonName.clean(req.fullName());
+        if (splitName) {
+            if (firstName == null) answerErrors.put("first_name", "First name is required");
+            if (lastName == null)  answerErrors.put("last_name", "Last name is required");
+        } else if (fullName == null) {
+            answerErrors.put("full_name", "Full name is required");
+        }
+        // Gender: only when the program asks. Required from current clients, so an older client
+        // still loaded in someone's browser during a deploy can finish registering.
+        boolean askGender = regProgram == null || !Boolean.FALSE.equals(regProgram.getAskGender());
+        String gender = null;
+        if (askGender) {
+            try { gender = PersonName.gender(req.gender()); }
+            catch (IllegalArgumentException e) { answerErrors.put("gender", e.getMessage()); }
+            if (gender == null && splitName && !answerErrors.containsKey("gender")) answerErrors.put("gender", "Please choose Male or Female");
+        }
         try {
             validAnswers = registrationFieldService.validate(req.programId(), req.customAnswers(), true);
         } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
@@ -235,7 +255,7 @@ public class ParticipantController {
         answersJson = registrationFieldService.toJson(validAnswers);
         try {
             Participant p = participantService.register(
-                req.fullName(), req.phone(), req.email(), req.hotelId(), shuttleOptIn,
+                fullName, firstName, lastName, gender, req.phone(), req.email(), req.hotelId(), shuttleOptIn,
                 req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
                 req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
                 req.programId(), req.state(), answersJson

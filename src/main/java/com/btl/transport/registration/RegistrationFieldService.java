@@ -17,7 +17,12 @@ import java.util.*;
 public class RegistrationFieldService {
 
     public static final Set<String> TYPES =
-        Set.of("text", "textarea", "select", "multiselect", "checkbox", "number", "date");
+        Set.of("text", "textarea", "select", "radio", "multiselect", "checkbox", "number", "date");
+
+    /** Types whose answers come from the question's option list. "radio" is pick-one shown as buttons. */
+    public static boolean isChoice(String type) {
+        return "select".equals(type) || "radio".equals(type) || "multiselect".equals(type);
+    }
     private static final int MAX_TEXT = 2000;
 
     private final RegistrationFieldRepository repository;
@@ -141,7 +146,7 @@ public class RegistrationFieldService {
                 try { LocalDate.parse(s); return s; }
                 catch (Exception e) { throw new IllegalArgumentException(label + " must be a date (YYYY-MM-DD)"); }
             }
-            case "select" -> {
+            case "select", "radio" -> {
                 String s = String.valueOf(raw).trim();
                 if (!options(f).contains(s)) throw new IllegalArgumentException(label + ": choose one of the listed options");
                 return s;

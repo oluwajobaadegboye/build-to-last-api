@@ -34,6 +34,7 @@ import com.btl.transport.notification.TwilioService;
 import com.btl.transport.common.Leg4CalculatorService;
 import com.btl.transport.common.enums.FlightStatusType;
 import com.btl.transport.participant.Participant;
+import com.btl.transport.participant.PersonName;
 import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.*;
 import com.btl.transport.infrastructure.StorageService;
@@ -102,6 +103,10 @@ public class AdminController {
 
     public record UpdateParticipantRequest(
         @JsonProperty("full_name")        String fullName,
+        @JsonProperty("first_name")       String firstName,
+        @JsonProperty("last_name")        String lastName,
+        /** "male" | "female" | "" (clears) */
+        String gender,
         @JsonProperty("phone_whatsapp")   String phone,
         String email,
         @JsonProperty("needs_attention")  Boolean needsAttention,
@@ -620,7 +625,26 @@ public class AdminController {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
-        if (req.fullName()        != null) p.setFullName(req.fullName());
+        if (req.firstName() != null || req.lastName() != null) {
+            // Split name: both parts required; full_name is rebuilt so every screen shows the new name.
+            String first = PersonName.clean(req.firstName() != null ? req.firstName() : p.getFirstName());
+            String last  = PersonName.clean(req.lastName()  != null ? req.lastName()  : p.getLastName());
+            if (first == null || last == null)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "First name and last name are required");
+            if (first.length() > PersonName.MAX_PART || last.length() > PersonName.MAX_PART)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Names must not exceed 120 characters");
+            p.setFirstName(first);
+            p.setLastName(last);
+            p.setFullName(PersonName.join(first, last));
+        } else if (req.fullName() != null) {
+            String full = PersonName.clean(req.fullName());
+            if (full == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name is required");
+            p.setFullName(full);
+        }
+        if (req.gender() != null) {
+            try { p.setGender(PersonName.gender(req.gender())); }
+            catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage()); }
+        }
         if (req.phone()           != null) p.setPhone(req.phone());
         if (req.email()           != null) p.setEmail(req.email());
         if (req.needsAttention()  != null) p.setNeedsAttention(req.needsAttention());
@@ -1647,7 +1671,8 @@ public class AdminController {
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure, boolean boardedArrival, boolean boardedDeparture) {
         return new AdminDtos.ParticipantAdminResponse(
-            p.getBtlCode(), p.getFullName(), p.getPhone(), p.getEmail(), p.getState(),
+            p.getBtlCode(), p.getFullName(), p.getFirstName(), p.getLastName(), p.getGender(),
+            p.getPhone(), p.getEmail(), p.getState(),
             toHotelDto(p.getHotel()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,

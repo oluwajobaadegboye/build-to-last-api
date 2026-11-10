@@ -62,7 +62,7 @@ public class ParticipantExportController {
                 .collect(Collectors.groupingBy(f -> f.getParticipant().getId()));
 
         List<String> header = new ArrayList<>(List.of(
-            "Code", "Full name", "Email", "Phone", "State", "Status", "Hotel", "Shuttle opt-in",
+            "Code", "Full name", "First name", "Last name", "Gender", "Email", "Phone", "State", "Status", "Hotel", "Shuttle opt-in",
             "Arrival flight", "Arrival time", "Departure flight", "Departure time", "Breakout group", "Registered at",
             "Payment status", "Amount paid"));
         for (RegistrationField f : fields) {
@@ -83,7 +83,7 @@ public class ParticipantExportController {
             Map<String, Object> answers = fieldService.parseAnswers(p.getCustomAnswers());
 
             List<String> r = new ArrayList<>(List.of(
-                s(p.getBtlCode()), s(p.getFullName()), s(p.getEmail()), s(p.getPhone()), s(p.getState()),
+                s(p.getBtlCode()), s(p.getFullName()), s(p.getFirstName()), s(p.getLastName()), genderLabel(p.getGender()), s(p.getEmail()), s(p.getPhone()), s(p.getState()),
                 p.getStatus() != null ? p.getStatus().name().toLowerCase() : "",
                 p.getHotel() != null ? s(p.getHotel().getHotelName()) : "",
                 Boolean.TRUE.equals(p.getShuttleOptIn()) ? "Yes" : "No",
@@ -133,5 +133,11 @@ public class ParticipantExportController {
         String x = v == null ? "" : v;
         if (!x.isEmpty() && "=+-@\t\r".indexOf(x.charAt(0)) >= 0 && !x.matches("^[+-]?\\d[\\d\\s().-]*$")) x = "'" + x;
         return "\"" + x.replace("\"", "\"\"") + "\"";
+    }
+
+    /** "male" → "Male", "female" → "Female", none → "". */
+    private static String genderLabel(String g) {
+        if (g == null || g.isBlank()) return "";
+        return Character.toUpperCase(g.charAt(0)) + g.substring(1).toLowerCase();
     }
 }

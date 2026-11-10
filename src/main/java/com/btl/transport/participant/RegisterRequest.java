@@ -8,10 +8,21 @@ import java.time.LocalDateTime;
 @ValidFlightPairs
 public record RegisterRequest(
 
-    @NotBlank(message = "Full name is required")
+    /** Older clients send only full_name; current ones send first_name + last_name (full_name is then built from them). */
     @Size(max = 255, message = "Full name must not exceed 255 characters")
     @JsonProperty("full_name")
     String fullName,
+
+    @Size(max = PersonName.MAX_PART, message = "First name must not exceed 120 characters")
+    @JsonProperty("first_name")
+    String firstName,
+
+    @Size(max = PersonName.MAX_PART, message = "Last name must not exceed 120 characters")
+    @JsonProperty("last_name")
+    String lastName,
+
+    /** "male" | "female"; required when the program asks for gender (and the client sends first/last name). */
+    String gender,
 
     @Pattern(
         regexp = "^\\+[1-9]\\d{7,14}$",

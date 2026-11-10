@@ -58,7 +58,7 @@ public class RegistrationFieldController {
         if (type == null || !RegistrationFieldService.TYPES.contains(type)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown question type");
         }
-        boolean choice = type.equals("select") || type.equals("multiselect");
+        boolean choice = RegistrationFieldService.isChoice(type);
         long usable = options == null ? 0 : options.stream().filter(o -> o != null && !o.isBlank()).count();
         if (choice && usable < 1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add at least one option");
     }
@@ -79,7 +79,7 @@ public class RegistrationFieldController {
         validateDefinition(req.label(), req.type(), req.options());
         int nextOrder = repository.findByProgramIdOrderBySortOrderAscIdAsc(pid).stream()
             .mapToInt(RegistrationField::getSortOrder).max().orElse(-1) + 1;
-        boolean choice = req.type().equals("select") || req.type().equals("multiselect");
+        boolean choice = RegistrationFieldService.isChoice(req.type());
         RegistrationField f = RegistrationField.builder()
             .programId(pid)
             .fieldKey(service.uniqueKey(pid, req.label()))
@@ -103,7 +103,7 @@ public class RegistrationFieldController {
         String type = req.type() != null ? req.type() : f.getType();
         List<String> options = req.options() != null ? req.options() : service.options(f);
         validateDefinition(label, type, options);
-        boolean choice = type.equals("select") || type.equals("multiselect");
+        boolean choice = RegistrationFieldService.isChoice(type);
         f.setLabel(label.trim());
         f.setType(type);
         f.setOptions(choice ? service.optionsJson(options) : null);

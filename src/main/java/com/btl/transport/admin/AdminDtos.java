@@ -47,6 +47,9 @@ public final class AdminDtos {
     record ParticipantAdminResponse(
         @JsonProperty("btl_code")          String btlCode,
         @JsonProperty("full_name")         String fullName,
+        @JsonProperty("first_name")        String firstName,
+        @JsonProperty("last_name")         String lastName,
+        String gender,
         @JsonProperty("phone_whatsapp")    String phoneWhatsapp,
         String email,
         String state,

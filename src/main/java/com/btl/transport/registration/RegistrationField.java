@@ -30,7 +30,7 @@ public class RegistrationField {
     @Column(name = "type", nullable = false)
     private String type;
 
-    /** JSON array of option strings (select / multiselect only). */
+    /** JSON array of option strings (select / radio / multiselect only). */
     @Column(name = "options")
     private String options;
 
