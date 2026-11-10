@@ -105,15 +105,9 @@ public class RegistrationFieldService {
             boolean required = Boolean.TRUE.equals(f.getRequired());
 
             if ("checkbox".equals(f.getType())) {
-                // Yes / No question: Yes = true, No = false. Required means "answer Yes or No"; No is a valid answer.
-                if (blank) {
-                    if (required && enforceRequired) errors.put(key, f.getLabel() + " is required");
-                    continue;
-                }
-                String v = String.valueOf(raw).trim();
-                if (Boolean.TRUE.equals(raw) || "true".equalsIgnoreCase(v)) out.put(key, true);
-                else if (Boolean.FALSE.equals(raw) || "false".equalsIgnoreCase(v)) out.put(key, false);
-                else errors.put(key, f.getLabel() + ": answer Yes or No");
+                boolean checked = Boolean.TRUE.equals(raw) || "true".equalsIgnoreCase(String.valueOf(raw));
+                if (required && enforceRequired && !checked) { errors.put(key, f.getLabel() + " is required"); continue; }
+                if (raw != null) out.put(key, checked);
                 continue;
             }
             if (blank) {
