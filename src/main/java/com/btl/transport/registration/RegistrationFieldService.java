@@ -17,13 +17,16 @@ import java.util.*;
 public class RegistrationFieldService {
 
     public static final Set<String> TYPES =
-        Set.of("text", "textarea", "select", "radio", "multiselect", "checkbox", "number", "date");
+        Set.of("text", "textarea", "select", "radio", "multiselect", "checkbox", "number", "date", "phone", "email");
 
     /** Types whose answers come from the question's option list. "radio" is pick-one shown as buttons. */
     public static boolean isChoice(String type) {
         return "select".equals(type) || "radio".equals(type) || "multiselect".equals(type);
     }
     private static final int MAX_TEXT = 2000;
+    /** Same rule as the registration phone number: E.164, e.g. +16418191032. */
+    private static final java.util.regex.Pattern PHONE = java.util.regex.Pattern.compile("^\\+[1-9]\\d{7,14}$");
+    private static final java.util.regex.Pattern EMAIL = java.util.regex.Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final RegistrationFieldRepository repository;
     private final ObjectMapper objectMapper;
@@ -145,6 +148,16 @@ public class RegistrationFieldService {
                 String s = String.valueOf(raw).trim();
                 try { LocalDate.parse(s); return s; }
                 catch (Exception e) { throw new IllegalArgumentException(label + " must be a date (YYYY-MM-DD)"); }
+            }
+            case "phone" -> {
+                String s = String.valueOf(raw).replaceAll("[\\s().-]", "");
+                if (!PHONE.matcher(s).matches()) throw new IllegalArgumentException(label + ": enter a valid phone number with country code");
+                return s;
+            }
+            case "email" -> {
+                String s = String.valueOf(raw).trim();
+                if (s.length() > 255 || !EMAIL.matcher(s).matches()) throw new IllegalArgumentException(label + ": enter a valid email address");
+                return s;
             }
             case "select", "radio" -> {
                 String s = String.valueOf(raw).trim();

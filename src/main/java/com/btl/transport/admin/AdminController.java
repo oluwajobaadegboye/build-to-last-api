@@ -645,12 +645,30 @@ public class AdminController {
             try { p.setGender(PersonName.gender(req.gender())); }
             catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage()); }
         }
-        if (req.phone()           != null) p.setPhone(req.phone());
-        if (req.email()           != null) p.setEmail(req.email());
+        // Phone and email are only checked when they change, so saving other fields on an older record
+        // (or from an older admin screen that sends every field) keeps working.
+        if (req.phone() != null && !req.phone().equals(p.getPhone() == null ? "" : p.getPhone())) {
+            // "" clears; otherwise international form, e.g. +16418191032 (same rule as registration).
+            String phone = req.phone().replaceAll("[\\s().-]", "");
+            if (phone.isEmpty()) p.setPhone(null);
+            else if (!phone.matches("^\\+[1-9]\\d{7,14}$"))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phone must include the country code, e.g. +16418191032");
+            else p.setPhone(phone);
+        }
+        if (req.email() != null && !req.email().equals(p.getEmail())) {
+            String email = req.email().trim();
+            if (email.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email is required");
+            if (email.length() > 255 || !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a valid email address");
+            if (!email.equalsIgnoreCase(p.getEmail()) && participantRepository.findByEmailIgnoreCaseAndProgramId(email, p.getProgramId())
+                    .filter(other -> !other.getId().equals(p.getId())).isPresent())
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Another participant in this program already uses this email");
+            p.setEmail(email);
+        }
         if (req.needsAttention()  != null) p.setNeedsAttention(req.needsAttention());
         if (req.attentionReason() != null) p.setAttentionReason(req.attentionReason());
         if (req.notes()           != null) p.setNotes(req.notes());
-        if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup());
+        if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup() <= 0 ? null : req.breakoutGroup()); // 0 clears
         if (req.customAnswers()   != null) {
             // Admin edits: types/options checked, required not enforced. Answers to removed questions are kept.
             Map<String, Object> merged = new LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));

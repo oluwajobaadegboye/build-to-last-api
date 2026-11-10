@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/** CSV of every participant in the program, with one column per custom registration question. */
+/** CSV of every participant in the program, with one column per custom registration question; columns can be picked. */
 @Tag(name = "Participants export")
 @RestController
 @RequestMapping("/api/v1/admin/participants")
@@ -42,66 +42,111 @@ public class ParticipantExportController {
     private final com.btl.transport.admin.AdminAccess adminAccess;
     private final com.btl.transport.program.ProgramRepository programRepository;
 
-    @Operation(summary = "Export participants CSV", description = "All participants of the X-Program-Id program, including custom question answers")
-    @GetMapping(value = "/export.csv")
-    @Transactional(readOnly = true)
-    public ResponseEntity<byte[]> export(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
+    /** One CSV column: a stable id (used to pick columns), its heading, the group it's listed under, and how to fill it. */
+    record Column(String id, String label, String group, java.util.function.Function<Row, String> value) {}
+
+    /** Everything one participant's row is built from. */
+    record Row(Participant p, Flight arr, Flight dep, Map<String, Object> answers, Map<Integer, ParticipantSouvenir> souvenirs, java.math.BigDecimal paid) {}
+
+    /** Every column the export can include, in default order. */
+    private List<Column> columns(String programId, boolean showAmounts) {
+        List<Column> c = new ArrayList<>();
+        String person = "Personal details", travel = "Travel & stay", prog = "Program";
+        c.add(new Column("code", "Code", prog, r -> s(r.p().getBtlCode())));
+        c.add(new Column("full_name", "Full name", person, r -> s(r.p().getFullName())));
+        c.add(new Column("first_name", "First name", person, r -> s(r.p().getFirstName())));
+        c.add(new Column("last_name", "Last name", person, r -> s(r.p().getLastName())));
+        c.add(new Column("gender", "Gender", person, r -> genderLabel(r.p().getGender())));
+        c.add(new Column("email", "Email", person, r -> s(r.p().getEmail())));
+        c.add(new Column("phone", "Phone", person, r -> s(r.p().getPhone())));
+        c.add(new Column("state", "State", person, r -> s(r.p().getState())));
+        c.add(new Column("status", "Status", prog, r -> r.p().getStatus() != null ? r.p().getStatus().name().toLowerCase() : ""));
+        c.add(new Column("hotel", "Hotel", travel, r -> r.p().getHotel() != null ? s(r.p().getHotel().getHotelName()) : ""));
+        c.add(new Column("shuttle", "Shuttle opt-in", travel, r -> Boolean.TRUE.equals(r.p().getShuttleOptIn()) ? "Yes" : "No"));
+        c.add(new Column("arrival_flight", "Arrival flight", travel, r -> flightLabel(r.arr())));
+        c.add(new Column("arrival_time", "Arrival time", travel, r -> r.arr() != null && r.arr().getSubmittedDatetime() != null ? r.arr().getSubmittedDatetime().toString() : ""));
+        c.add(new Column("departure_flight", "Departure flight", travel, r -> flightLabel(r.dep())));
+        c.add(new Column("departure_time", "Departure time", travel, r -> r.dep() != null && r.dep().getSubmittedDatetime() != null ? r.dep().getSubmittedDatetime().toString() : ""));
+        c.add(new Column("breakout_group", "Breakout group", prog, r -> r.p().getBreakoutGroup() != null ? String.valueOf(r.p().getBreakoutGroup()) : ""));
+        c.add(new Column("registered_at", "Registered at", prog, r -> r.p().getCreatedAt() != null ? r.p().getCreatedAt().toString() : ""));
+        c.add(new Column("payment_status", "Payment status", prog, r -> switch (PaymentService.normalizeStatus(r.p().getPaymentStatus())) {
+            case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; }));
+        c.add(new Column("amount_paid", "Amount paid", prog, r -> showAmounts && r.paid() != null ? r.paid().toPlainString() : ""));
+        for (RegistrationField f : fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId)) {
+            String label = Boolean.TRUE.equals(f.getActive()) ? f.getLabel() : f.getLabel() + " (removed)";
+            c.add(new Column("q:" + f.getFieldKey(), label, "Additional info", r -> answerText(r.answers().get(f.getFieldKey()))));
+        }
+        // Per souvenir: the chosen option (items with options only) and whether it was received.
+        for (SouvenirItem item : souvenirItemRepository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId)) {
+            Integer id = item.getId();
+            if (!souvenirService.options(item).isEmpty()) {
+                c.add(new Column("souvenir:" + id + ":choice", item.getName() + " (choice)", "Souvenirs", r -> {
+                    ParticipantSouvenir rec = r.souvenirs().get(id); return rec != null ? s(rec.getChoice()) : ""; }));
+            }
+            c.add(new Column("souvenir:" + id + ":received", item.getName() + " received", "Souvenirs", r -> {
+                ParticipantSouvenir rec = r.souvenirs().get(id); return rec != null && Boolean.TRUE.equals(rec.getReceived()) ? "Yes" : "No"; }));
+        }
+        return c;
+    }
+
+    private static String requireProgram(String programId) {
         if (programId == null || programId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No program selected");
         }
+        return programId;
+    }
+
+    @Operation(summary = "Export columns", description = "Every column the participants CSV can include, for choosing which to export")
+    @GetMapping("/export/columns")
+    @Transactional(readOnly = true)
+    public List<Map<String, String>> exportColumns(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        String pid = requireProgram(programId);
+        return columns(pid, true).stream()
+            .map(c -> Map.of("id", c.id(), "label", c.label(), "group", c.group()))
+            .toList();
+    }
+
+    @Operation(summary = "Export participants CSV",
+        description = "All participants of the X-Program-Id program, including custom question answers. "
+            + "Optional `columns`: comma-separated column ids (from /export/columns) to include, in that order; default is every column.")
+    @GetMapping(value = "/export.csv")
+    @Transactional(readOnly = true)
+    public ResponseEntity<byte[]> export(@RequestHeader(value = "X-Program-Id", required = false) String programId,
+                                         @RequestParam(value = "columns", required = false) String columnIds) {
+        requireProgram(programId);
         List<Participant> participants = participantRepository.findAllByProgramIdWithHotel(programId);
         boolean showAmounts = PaymentService.canSeeAmounts(programRepository.findById(programId).orElse(null), adminAccess.permissions());
-        Map<Integer, java.math.BigDecimal> paidTotals = showAmounts
-            ? paymentService.totals(participants.stream().map(Participant::getId).toList()) : Map.of();
-        List<RegistrationField> fields = fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId);
-        List<SouvenirItem> souvenirs = souvenirItemRepository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId);
-        Map<Integer, Map<Integer, ParticipantSouvenir>> souvenirRecords = souvenirs.isEmpty() ? Map.of() : souvenirService.recordsForProgram(programId);
+        List<Column> all = columns(programId, showAmounts);
+        List<Column> chosen = all;
+        if (columnIds != null && !columnIds.isBlank()) {
+            Map<String, Column> byId = new LinkedHashMap<>();
+            all.forEach(c -> byId.put(c.id(), c));
+            chosen = Arrays.stream(columnIds.split(",")).map(String::trim).distinct()
+                .map(byId::get).filter(Objects::nonNull).toList();
+            if (chosen.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose at least one column to export");
+        }
+        boolean needPaid = showAmounts && chosen.stream().anyMatch(c -> c.id().equals("amount_paid"));
+        boolean needFlights = chosen.stream().anyMatch(c -> c.id().startsWith("arrival_") || c.id().startsWith("departure_"));
+        boolean needSouvenirs = chosen.stream().anyMatch(c -> c.id().startsWith("souvenir:"));
 
-        Map<Integer, List<Flight>> flights = participants.isEmpty() ? Map.of()
+        Map<Integer, java.math.BigDecimal> paidTotals = needPaid
+            ? paymentService.totals(participants.stream().map(Participant::getId).toList()) : Map.of();
+        Map<Integer, Map<Integer, ParticipantSouvenir>> souvenirRecords = needSouvenirs ? souvenirService.recordsForProgram(programId) : Map.of();
+        Map<Integer, List<Flight>> flights = participants.isEmpty() || !needFlights ? Map.of()
             : flightRepository.findByParticipantIn(participants).stream()
                 .collect(Collectors.groupingBy(f -> f.getParticipant().getId()));
 
-        List<String> header = new ArrayList<>(List.of(
-            "Code", "Full name", "First name", "Last name", "Gender", "Email", "Phone", "State", "Status", "Hotel", "Shuttle opt-in",
-            "Arrival flight", "Arrival time", "Departure flight", "Departure time", "Breakout group", "Registered at",
-            "Payment status", "Amount paid"));
-        for (RegistrationField f : fields) {
-            header.add(Boolean.TRUE.equals(f.getActive()) ? f.getLabel() : f.getLabel() + " (removed)");
-        }
-        // Per souvenir: the chosen option (items with options only) and whether it was received.
-        for (SouvenirItem item : souvenirs) {
-            if (!souvenirService.options(item).isEmpty()) header.add(item.getName() + " (choice)");
-            header.add(item.getName() + " received");
-        }
-
-        StringBuilder csv = new StringBuilder("﻿"); // BOM so Excel reads UTF-8
-        row(csv, header);
+        StringBuilder csv = new StringBuilder("\uFEFF"); // BOM so Excel reads UTF-8
+        row(csv, chosen.stream().map(Column::label).toList());
         for (Participant p : participants) {
             List<Flight> fl = flights.getOrDefault(p.getId(), List.of());
-            Flight arr = fl.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
-            Flight dep = fl.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
-            Map<String, Object> answers = fieldService.parseAnswers(p.getCustomAnswers());
-
-            List<String> r = new ArrayList<>(List.of(
-                s(p.getBtlCode()), s(p.getFullName()), s(p.getFirstName()), s(p.getLastName()), genderLabel(p.getGender()), s(p.getEmail()), s(p.getPhone()), s(p.getState()),
-                p.getStatus() != null ? p.getStatus().name().toLowerCase() : "",
-                p.getHotel() != null ? s(p.getHotel().getHotelName()) : "",
-                Boolean.TRUE.equals(p.getShuttleOptIn()) ? "Yes" : "No",
-                flightLabel(arr), arr != null && arr.getSubmittedDatetime() != null ? arr.getSubmittedDatetime().toString() : "",
-                flightLabel(dep), dep != null && dep.getSubmittedDatetime() != null ? dep.getSubmittedDatetime().toString() : "",
-                p.getBreakoutGroup() != null ? String.valueOf(p.getBreakoutGroup()) : "",
-                p.getCreatedAt() != null ? p.getCreatedAt().toString() : "",
-                switch (PaymentService.normalizeStatus(p.getPaymentStatus())) {
-                    case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; },
-                showAmounts ? paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO).toPlainString() : ""));
-            for (RegistrationField f : fields) r.add(answerText(answers.get(f.getFieldKey())));
-            Map<Integer, ParticipantSouvenir> mine = souvenirRecords.getOrDefault(p.getId(), Map.of());
-            for (SouvenirItem item : souvenirs) {
-                ParticipantSouvenir rec = mine.get(item.getId());
-                if (!souvenirService.options(item).isEmpty()) r.add(rec != null ? s(rec.getChoice()) : "");
-                r.add(rec != null && Boolean.TRUE.equals(rec.getReceived()) ? "Yes" : "No");
-            }
-            row(csv, r);
+            Row r = new Row(p,
+                fl.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null),
+                fl.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null),
+                fieldService.parseAnswers(p.getCustomAnswers()),
+                souvenirRecords.getOrDefault(p.getId(), Map.of()),
+                paidTotals.getOrDefault(p.getId(), java.math.BigDecimal.ZERO));
+            row(csv, chosen.stream().map(c -> c.value().apply(r)).toList());
         }
 
         return ResponseEntity.ok()
