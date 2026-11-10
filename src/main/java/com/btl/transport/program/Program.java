@@ -209,6 +209,11 @@ public class Program {
     @Builder.Default
     private Boolean askGender = true;
 
+    /** Registration asks for a WhatsApp/phone number (required). On unless the admin turns it off. */
+    @Column(name = "ask_phone", nullable = false)
+    @Builder.Default
+    private Boolean askPhone = true;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

@@ -64,6 +64,7 @@ public class ProgramOpsController {
         @JsonProperty("payment_emails_enabled") Boolean paymentEmailsEnabled,
         @JsonProperty("show_breakout_group") Boolean showBreakoutGroup,
         @JsonProperty("ask_gender") Boolean askGender,
+        @JsonProperty("ask_phone") Boolean askPhone,
         /** "YYYY-MM-DDTHH:mm" in the program's timezone; "" clears */
         @JsonProperty("registration_closes_at") String registrationClosesAt,
         /** 0 clears */
@@ -78,6 +79,7 @@ public class ProgramOpsController {
         m.put("payment_emails_enabled", Boolean.TRUE.equals(p.getPaymentEmailsEnabled()));
         m.put("show_breakout_group", !Boolean.FALSE.equals(p.getShowBreakoutGroup()));
         m.put("ask_gender", !Boolean.FALSE.equals(p.getAskGender()));
+        m.put("ask_phone", !Boolean.FALSE.equals(p.getAskPhone()));
         m.put("registration_closes_at", p.getRegistrationClosesAt());
         m.put("max_registrations", p.getMaxRegistrations());
         m.put("registered", registered);
@@ -102,6 +104,7 @@ public class ProgramOpsController {
         if (req.paymentEmailsEnabled() != null) p.setPaymentEmailsEnabled(req.paymentEmailsEnabled());
         if (req.showBreakoutGroup() != null) p.setShowBreakoutGroup(req.showBreakoutGroup());
         if (req.askGender() != null) p.setAskGender(req.askGender());
+        if (req.askPhone() != null) p.setAskPhone(req.askPhone());
         if (req.registrationClosesAt() != null) {
             String v = req.registrationClosesAt().trim();
             if (v.isEmpty()) p.setRegistrationClosesAt(null);

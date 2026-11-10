@@ -149,6 +149,7 @@ public class ParticipantController {
         resp.put("reg_description", program.getRegDescription());
         resp.put("page_theme",      program.getPageTheme());
         resp.put("ask_gender",      !Boolean.FALSE.equals(program.getAskGender()));
+        resp.put("ask_phone",       !Boolean.FALSE.equals(program.getAskPhone()));
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }
@@ -236,6 +237,9 @@ public class ParticipantController {
             catch (IllegalArgumentException e) { answerErrors.put("gender", e.getMessage()); }
             if (gender == null && splitName && !answerErrors.containsKey("gender")) answerErrors.put("gender", "Please choose Male or Female");
         }
+        // Phone: not stored when the program doesn't ask for it.
+        boolean askPhone = regProgram == null || !Boolean.FALSE.equals(regProgram.getAskPhone());
+        String phone = askPhone ? req.phone() : null;
         try {
             validAnswers = registrationFieldService.validate(req.programId(), req.customAnswers(), true);
         } catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) {
@@ -255,7 +259,7 @@ public class ParticipantController {
         answersJson = registrationFieldService.toJson(validAnswers);
         try {
             Participant p = participantService.register(
-                fullName, firstName, lastName, gender, req.phone(), req.email(), req.hotelId(), shuttleOptIn,
+                fullName, firstName, lastName, gender, phone, req.email(), req.hotelId(), shuttleOptIn,
                 req.arrivalAirline(), req.arrivalFlightNumber(), req.arrivalDatetime(),
                 req.departureAirline(), req.departureFlightNumber(), req.departureDatetime(),
                 req.programId(), req.state(), answersJson
