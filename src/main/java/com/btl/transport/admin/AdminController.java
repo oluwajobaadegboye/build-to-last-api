@@ -625,6 +625,7 @@ public class AdminController {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
+        List<Object> before = auditSnapshot(p);
         if (req.firstName() != null || req.lastName() != null) {
             // Split name: both parts required; full_name is rebuilt so every screen shows the new name.
             String first = PersonName.clean(req.firstName() != null ? req.firstName() : p.getFirstName());
@@ -686,12 +687,29 @@ public class AdminController {
         }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
+        Audit.detail(auditChanges(before, auditSnapshot(p)));
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
         Flight departure = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    private static final List<String> AUDIT_FIELDS =
+        List.of("name", "gender", "phone", "email", "attention flag", "attention reason", "notes", "breakout group", "additional info");
+
+    /** Values compared before/after an edit, in AUDIT_FIELDS order, to log which fields changed. */
+    private static List<Object> auditSnapshot(Participant p) {
+        return java.util.Arrays.asList(p.getFullName(), p.getGender(), p.getPhone(), p.getEmail(), p.getNeedsAttention(),
+            p.getAttentionReason(), p.getNotes(), p.getBreakoutGroup(), p.getCustomAnswers());
+    }
+
+    private static String auditChanges(List<Object> before, List<Object> after) {
+        List<String> changed = new ArrayList<>();
+        for (int i = 0; i < AUDIT_FIELDS.size(); i++)
+            if (!java.util.Objects.equals(before.get(i), after.get(i))) changed.add(AUDIT_FIELDS.get(i));
+        return changed.isEmpty() ? "No changes" : String.join(", ", changed);
     }
 
     public record AssignBreakoutGroupsRequest(@JsonProperty("num_groups") int numGroups) {}
@@ -1846,6 +1864,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> createAdminUser(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @RequestBody CreateAdminUserRequest req) {
+        Audit.subject(req.username());
         if (req.username() == null || req.password() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "username and password required"));
         }

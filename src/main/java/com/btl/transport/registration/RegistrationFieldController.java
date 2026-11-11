@@ -1,5 +1,7 @@
 package com.btl.transport.registration;
 
+import com.btl.transport.admin.Audit;
+
 import com.btl.transport.admin.AdminAccess;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.Operation;
@@ -77,6 +79,7 @@ public class RegistrationFieldController {
                                       @RequestBody FieldRequest req) {
         String pid = requireProgram(programId);
         validateDefinition(req.label(), req.type(), req.options());
+        Audit.subject(req.label());
         int nextOrder = repository.findByProgramIdOrderBySortOrderAscIdAsc(pid).stream()
             .mapToInt(RegistrationField::getSortOrder).max().orElse(-1) + 1;
         boolean choice = RegistrationFieldService.isChoice(req.type());

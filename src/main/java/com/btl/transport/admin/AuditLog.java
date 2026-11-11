@@ -22,6 +22,12 @@ public class AuditLog {
     @Column(name = "target") private String target;
     @Column(name = "method") private String method;
     @Column(name = "path") private String path;
+    /** checkin, participants, payments, souvenirs, accommodation, transport, form, settings, team, other. Null on rows before V57. */
+    @Column(name = "category") private String category;
+    /** Name of the person or thing changed, captured before the change (so it survives deletes). */
+    @Column(name = "target_name") private String targetName;
+    /** Short extra detail, e.g. "Paid" or "email, phone". */
+    @Column(name = "detail") private String detail;
     @Column(name = "created_at", nullable = false)
     @Builder.Default
     private OffsetDateTime createdAt = OffsetDateTime.now();

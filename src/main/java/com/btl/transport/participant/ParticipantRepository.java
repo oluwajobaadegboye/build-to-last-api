@@ -13,6 +13,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, Intege
 
     Optional<Participant> findByBtlCode(String btlCode);
 
+    List<Participant> findByBtlCodeIn(java.util.Collection<String> btlCodes);
+
     @Query("SELECT p FROM Participant p LEFT JOIN FETCH p.hotel WHERE p.btlCode = :btlCode")
     Optional<Participant> findByBtlCodeWithHotel(String btlCode);
 
