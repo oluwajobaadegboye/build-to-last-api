@@ -1,5 +1,7 @@
 package com.btl.transport.souvenir;
 
+import com.btl.transport.admin.Audit;
+
 import com.btl.transport.admin.AdminAccess;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
@@ -71,6 +73,7 @@ public class SouvenirController {
     public Map<String, Object> create(@RequestHeader(value = "X-Program-Id", required = false) String programId,
                                       @RequestBody ItemRequest req) {
         String pid = requireProgram(programId);
+        Audit.subject(req.name());
         int next = itemRepository.findByProgramIdOrderBySortOrderAscIdAsc(pid).stream()
             .mapToInt(SouvenirItem::getSortOrder).max().orElse(-1) + 1;
         SouvenirItem item = SouvenirItem.builder()
@@ -169,6 +172,10 @@ public class SouvenirController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
         adminAccess.requireProgram(p.getProgramId());
         SouvenirItem item = loadItem(itemId, p.getProgramId());
+        if (Boolean.TRUE.equals(req.received())) Audit.action("Handed out " + item.getName() + " to");
+        else if (Boolean.FALSE.equals(req.received())) Audit.action("Took back " + item.getName() + " from");
+        else if (req.choice() != null) Audit.action("Changed " + item.getName() + " choice for");
+        if (req.choice() != null) Audit.detail(req.choice().isBlank() ? "Choice cleared" : "Choice: " + req.choice().trim());
         try {
             return service.update(p, item, req.received(), req.choice(), adminAccess.currentUsername());
         } catch (IllegalArgumentException e) {

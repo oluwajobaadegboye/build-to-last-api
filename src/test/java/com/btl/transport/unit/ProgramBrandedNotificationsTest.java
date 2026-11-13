@@ -92,12 +92,12 @@ class ProgramBrandedNotificationsTest {
         preview("registration-camp.html", m.html());
 
         assertThat(m.sender()).isEqualTo("Pinewood Youth Camp");
-        assertThat(m.subject()).isEqualTo("Pinewood Youth Camp — Registration Confirmed");
+        assertThat(m.subject()).isEqualTo("Pinewood Youth Camp — Registration confirmed");
         assertThat(m.html()).contains("Pinewood Youth Camp", "July 5–9, 2027", "Pinewood Lodge Hall, 12 Pine Rd, Boulder, CO",
-            "Pinewood Youth Camp Team", "Your Registration Code", "PYC-001", "your accommodation");
+            "Pinewood Youth Camp Team", "Your registration code", "PYC-001", "your registration details and accommodation");
         assertThat(m.html()).contains("Casey &lt;Camper&gt;").doesNotContain("Casey <Camper>");
         // Pickups are off → no airport line, even though an airport was entered.
-        assertThat(m.html()).doesNotContain("Airport:", "DEN");
+        assertThat(m.html()).doesNotContain(">Airport<", "DEN");
         assertThat(m.plain()).contains("You're registered for Pinewood Youth Camp").doesNotContain("{{");
         for (String text : List.of(m.subject(), m.html(), m.plain())) {
             assertThat(text).doesNotContain("Built to Last", "BTL 2026", "Indianapolis", "Deeper Life", "Transport Code");
@@ -113,10 +113,10 @@ class ProgramBrandedNotificationsTest {
         Sent m = captureHtml();
         preview("registration-btl.html", m.html());
 
-        assertThat(m.subject()).isEqualTo("Built to Last 2026 — Registration Confirmed");
+        assertThat(m.subject()).isEqualTo("Built to Last 2026 — Registration confirmed");
         assertThat(m.html()).contains("June 11–14, 2026", "Deeper Life Bible Church, 4160 Moller Rd, Indianapolis, IN",
-            "Airport: Indianapolis International (IND)", "Built to Last 2026 Team",
-            "your airport pickups, daily shuttle schedule and accommodation");
+            ">Airport<", "Indianapolis International (IND)", "Built to Last 2026 Team",
+            "your registration details, accommodation, airport pickups and daily shuttle schedule");
     }
 
     @Test
@@ -139,7 +139,7 @@ class ProgramBrandedNotificationsTest {
         Sent m = captureHtml();
         preview("room-camp.html", m.html());
 
-        assertThat(m.subject()).isEqualTo("Pinewood Youth Camp — Your Room Assignment");
+        assertThat(m.subject()).isEqualTo("Pinewood Youth Camp — Your room assignment");
         assertThat(m.html()).contains(">Cabin<", "Cedar Cabin", "Pinewood Youth Camp Team", "Sam");
         assertThat(m.plain()).contains("Cabin: Cedar Cabin");
         assertThat(m.html() + m.plain()).doesNotContain("BTL 2026", "Built to Last", "Indianapolis", "{{");
@@ -152,11 +152,12 @@ class ProgramBrandedNotificationsTest {
 
         service.sendDelayNotification(participant("btl2026", "Joba"), "UA77", 45, false);
 
-        ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(sendGrid).sendEmailAs(eq("Built to Last 2026"), anyString(), anyString(), subject.capture(), body.capture());
-        assertThat(subject.getValue()).isEqualTo("Built to Last 2026 — Flight Delay Update");
-        assertThat(body.getValue()).contains("UA77", "45 minutes").doesNotContain("{{");
+        Sent m = captureHtml();
+        assertThat(m.sender()).isEqualTo("Built to Last 2026");
+        assertThat(m.subject()).isEqualTo("Built to Last 2026 — Flight delay update");
+        assertThat(m.plain()).contains("UA77", "45 minutes").doesNotContain("{{");
+        // The layout signs off once; the SMS-style "— Team" ending isn't repeated in the HTML.
+        assertThat(m.html()).contains("UA77", "Thanks,<br>Built to Last 2026 Team").doesNotContain("— Built to Last 2026 Team", "{{");
     }
 
     @Test
@@ -167,7 +168,7 @@ class ProgramBrandedNotificationsTest {
         Sent m = captureHtml();
 
         assertThat(m.sender()).isNull();  // → configured default sender
-        assertThat(m.subject()).isEqualTo("Registration Confirmed");
+        assertThat(m.subject()).isEqualTo("Registration confirmed");
         assertThat(m.html()).contains("The Organising Team").doesNotContain("Built to Last", "{{");
     }
 

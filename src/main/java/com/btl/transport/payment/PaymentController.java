@@ -1,5 +1,7 @@
 package com.btl.transport.payment;
 
+import com.btl.transport.admin.Audit;
+
 import com.btl.transport.admin.AdminAccess;
 import com.btl.transport.participant.Participant;
 import com.btl.transport.participant.ParticipantRepository;
@@ -48,7 +50,14 @@ public class PaymentController {
     @Operation(summary = "Record a payment", description = "Body: { amount, note?, status? } — status (partial|paid) is used only when the program has no fee")
     @PostMapping("/payments")
     public Map<String, Object> record(@PathVariable String code, @RequestBody RecordPaymentRequest req) {
-        return paymentService.record(load(code), req.amount(), req.note(), req.status(), adminAccess.currentUsername());
+        Participant p = load(code);
+        Map<String, Object> out = paymentService.record(p, req.amount(), req.note(), req.status(), adminAccess.currentUsername());
+        if (req.amount() != null) {
+            String currency = programRepository.findById(p.getProgramId()).map(Program::getFeeCurrency).orElse("");
+            Audit.detail((req.amount().stripTrailingZeros().toPlainString() + " " + currency).trim()
+                + (req.note() != null && !req.note().isBlank() ? " · " + req.note().trim() : ""));
+        }
+        return out;
     }
 
     @Operation(summary = "Delete a payment", description = "Removes a mistaken entry and updates the status")
@@ -60,6 +69,10 @@ public class PaymentController {
     @Operation(summary = "Set payment status", description = "Manual override: unpaid | partial | paid (e.g. paid for a waived fee)")
     @PatchMapping("/payment-status")
     public Map<String, Object> setStatus(@PathVariable String code, @RequestBody StatusRequest req) {
-        return paymentService.setStatus(load(code), req.status());
+        Map<String, Object> out = paymentService.setStatus(load(code), req.status());
+        if (req.status() != null) Audit.detail(switch (req.status().toLowerCase(java.util.Locale.ROOT)) {
+            case "paid" -> "Marked as paid"; case "partial" -> "Marked as part paid"; case "unpaid" -> "Marked as not paid";
+            default -> null; });
+        return out;
     }
 }

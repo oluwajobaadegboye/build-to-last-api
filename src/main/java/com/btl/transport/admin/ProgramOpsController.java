@@ -62,6 +62,9 @@ public class ProgramOpsController {
         @JsonProperty("show_payment_to_attendees") Boolean showPaymentToAttendees,
         @JsonProperty("registrations_see_amounts") Boolean registrationsSeeAmounts,
         @JsonProperty("payment_emails_enabled") Boolean paymentEmailsEnabled,
+        @JsonProperty("show_breakout_group") Boolean showBreakoutGroup,
+        @JsonProperty("ask_gender") Boolean askGender,
+        @JsonProperty("ask_phone") Boolean askPhone,
         /** "YYYY-MM-DDTHH:mm" in the program's timezone; "" clears */
         @JsonProperty("registration_closes_at") String registrationClosesAt,
         /** 0 clears */
@@ -74,6 +77,9 @@ public class ProgramOpsController {
         m.put("show_payment_to_attendees", Boolean.TRUE.equals(p.getShowPaymentToAttendees()));
         m.put("registrations_see_amounts", !Boolean.FALSE.equals(p.getRegistrationsSeeAmounts()));
         m.put("payment_emails_enabled", Boolean.TRUE.equals(p.getPaymentEmailsEnabled()));
+        m.put("show_breakout_group", !Boolean.FALSE.equals(p.getShowBreakoutGroup()));
+        m.put("ask_gender", !Boolean.FALSE.equals(p.getAskGender()));
+        m.put("ask_phone", !Boolean.FALSE.equals(p.getAskPhone()));
         m.put("registration_closes_at", p.getRegistrationClosesAt());
         m.put("max_registrations", p.getMaxRegistrations());
         m.put("registered", registered);
@@ -88,7 +94,7 @@ public class ProgramOpsController {
         return policies(program(id));
     }
 
-    @Operation(summary = "Update program policies", description = "Payment visibility, payment emails, registration close date and capacity")
+    @Operation(summary = "Update program policies", description = "Payment visibility, payment emails, breakout group visibility, registration close date and capacity")
     @PatchMapping("/programs/{id}/policies")
     @Transactional
     public Map<String, Object> updatePolicies(@PathVariable String id, @RequestBody PoliciesRequest req) {
@@ -96,6 +102,9 @@ public class ProgramOpsController {
         if (req.showPaymentToAttendees() != null) p.setShowPaymentToAttendees(req.showPaymentToAttendees());
         if (req.registrationsSeeAmounts() != null) p.setRegistrationsSeeAmounts(req.registrationsSeeAmounts());
         if (req.paymentEmailsEnabled() != null) p.setPaymentEmailsEnabled(req.paymentEmailsEnabled());
+        if (req.showBreakoutGroup() != null) p.setShowBreakoutGroup(req.showBreakoutGroup());
+        if (req.askGender() != null) p.setAskGender(req.askGender());
+        if (req.askPhone() != null) p.setAskPhone(req.askPhone());
         if (req.registrationClosesAt() != null) {
             String v = req.registrationClosesAt().trim();
             if (v.isEmpty()) p.setRegistrationClosesAt(null);
@@ -269,6 +278,7 @@ public class ProgramOpsController {
         Participant p = participantRepository.findByBtlCode(code).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
         adminAccess.requireProgram(p.getProgramId());
         boolean in = !Boolean.FALSE.equals(req.checkedIn());
+        Audit.action(in ? "Checked in" : "Undid check-in for");
         if (in && p.getCheckedInAt() == null) { p.setCheckedInAt(OffsetDateTime.now()); p.setCheckedInBy(adminAccess.currentUsername()); }
         if (!in) { p.setCheckedInAt(null); p.setCheckedInBy(null); }
         participantRepository.save(p);
@@ -280,24 +290,100 @@ public class ProgramOpsController {
 
     // ── Activity log ────────────────────────────────────────────────────────
 
-    @Operation(summary = "Activity log", description = "Most recent admin changes first; pass ?before={id} for older entries")
+    private static final int ACTIVITY_SCAN_LIMIT = 5000;
+    private static final java.util.regex.Pattern RAW_ACTION = java.util.regex.Pattern.compile("^(POST|PUT|PATCH|DELETE) /.*");
+
+    @Operation(summary = "Activity log",
+        description = "Most recent admin changes first. Filters: category (checkin, participants, payments, souvenirs, accommodation, "
+            + "transport, form, settings, team, other), user, q (name, code or detail). Pass ?before={id} for older entries.")
     @GetMapping("/activity")
     public List<Map<String, Object>> activity(@RequestHeader(value = "X-Program-Id", required = false) String programId,
                                               @RequestParam(required = false) Long before,
-                                              @RequestParam(defaultValue = "50") int limit) {
+                                              @RequestParam(defaultValue = "50") int limit,
+                                              @RequestParam(required = false) String category,
+                                              @RequestParam(required = false) String user,
+                                              @RequestParam(required = false) String q) {
         Program prog = current(programId);
-        var page = PageRequest.of(0, Math.max(1, Math.min(limit, 200)));
-        List<AuditLog> rows = before == null
-            ? auditLogRepository.findByProgramIdOrderByIdDesc(prog.getId(), page)
-            : auditLogRepository.findByProgramIdAndIdLessThanOrderByIdDesc(prog.getId(), before, page);
-        return rows.stream().map(a -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", a.getId());
-            m.put("username", a.getUsername());
-            m.put("action", a.getAction());
-            m.put("target", a.getTarget());
-            m.put("created_at", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
-            return m;
-        }).toList();
+        int want = Math.max(1, Math.min(limit, 200));
+        String cat = category == null || category.isBlank() ? null : category.trim();
+        String who = user == null || user.isBlank() ? null : user.trim();
+        String needle = q == null || q.isBlank() ? null : q.trim().toLowerCase(Locale.ROOT);
+        boolean filtered = cat != null || needle != null;
+        int batch = filtered ? 200 : want;
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        Long cursor = before;
+        int scanned = 0;
+        // Filters on category/search are applied here (older rows have no stored category), scanning newest first.
+        while (out.size() < want && scanned < ACTIVITY_SCAN_LIMIT) {
+            var page = PageRequest.of(0, batch);
+            List<AuditLog> rows = who == null
+                ? (cursor == null ? auditLogRepository.findByProgramIdOrderByIdDesc(prog.getId(), page)
+                                  : auditLogRepository.findByProgramIdAndIdLessThanOrderByIdDesc(prog.getId(), cursor, page))
+                : (cursor == null ? auditLogRepository.findByProgramIdAndUsernameOrderByIdDesc(prog.getId(), who, page)
+                                  : auditLogRepository.findByProgramIdAndUsernameAndIdLessThanOrderByIdDesc(prog.getId(), who, cursor, page));
+            if (rows.isEmpty()) break;
+            scanned += rows.size();
+            Map<String, String> oldNames = participantNamesForOldRows(rows);
+            for (AuditLog a : rows) {
+                Map<String, Object> m = activityEntry(a, oldNames);
+                if (cat != null && !cat.equals(m.get("category"))) continue;
+                if (needle != null && !matches(m, needle)) continue;
+                out.add(m);
+                if (out.size() == want) break;
+            }
+            cursor = rows.get(rows.size() - 1).getId();
+            if (rows.size() < batch) break;
+        }
+        return out;
+    }
+
+    @Operation(summary = "Admins who appear in the activity log", description = "For the activity page's person filter")
+    @GetMapping("/activity/people")
+    public List<String> activityPeople(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        return auditLogRepository.findUsernames(current(programId).getId());
+    }
+
+    /** Rows logged before V57 carry no name; look participants up by code in one query. */
+    private Map<String, String> participantNamesForOldRows(List<AuditLog> rows) {
+        Set<String> codes = new HashSet<>();
+        for (AuditLog a : rows) {
+            if (a.getCategory() != null || a.getTargetName() != null) continue;
+            AuditCatalog.Match m = AuditCatalog.match(a.getMethod(), a.getPath());
+            if (m.kind() == AuditCatalog.Kind.PARTICIPANT_CODE && m.target() != null) codes.add(m.target());
+        }
+        Map<String, String> names = new HashMap<>();
+        if (!codes.isEmpty()) participantRepository.findByBtlCodeIn(codes).forEach(p -> names.put(p.getBtlCode(), p.getFullName()));
+        return names;
+    }
+
+    private Map<String, Object> activityEntry(AuditLog a, Map<String, String> oldNames) {
+        String category = a.getCategory(), action = a.getAction(), target = a.getTarget(), name = a.getTargetName();
+        if (category == null) {
+            // Logged before categories existed: describe it from the stored method + path.
+            AuditCatalog.Match m = AuditCatalog.match(a.getMethod(), a.getPath());
+            category = m.category();
+            if (!"other".equals(m.category()) || RAW_ACTION.matcher(String.valueOf(action)).matches()) action = m.action();
+            if (m.target() != null) target = m.target();
+            if (name == null && m.kind() == AuditCatalog.Kind.PARTICIPANT_CODE) name = oldNames.get(m.target());
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", a.getId());
+        m.put("username", a.getUsername());
+        m.put("action", action);
+        m.put("category", category);
+        m.put("target", target);
+        m.put("target_name", name);
+        m.put("detail", a.getDetail());
+        m.put("created_at", a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
+        return m;
+    }
+
+    private static boolean matches(Map<String, Object> m, String needle) {
+        for (String k : List.of("target", "target_name", "detail", "action", "username")) {
+            Object v = m.get(k);
+            if (v != null && v.toString().toLowerCase(Locale.ROOT).contains(needle)) return true;
+        }
+        return false;
     }
 }

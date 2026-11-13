@@ -81,6 +81,7 @@ public final class AdminPermissions {
         // Participants: viewers can list, open and export (read-only).
         new Rule("GET", Pattern.compile(P + "/participants$"), VIEW_PARTICIPANTS),
         new Rule("GET", Pattern.compile(P + "/participants/export\\.csv$"), VIEW_PARTICIPANTS),
+        new Rule("GET", Pattern.compile(P + "/participants/export/columns$"), VIEW_PARTICIPANTS),
         new Rule("GET", Pattern.compile(P + "/participants?/[^/]+$"), VIEW_PARTICIPANTS),
         new Rule("GET", Pattern.compile(P + "/participants/[^/]+/payments$"), VIEW_PARTICIPANTS),
         new Rule("GET", Pattern.compile(P + "/registration-fields$"), VIEW_PARTICIPANTS),

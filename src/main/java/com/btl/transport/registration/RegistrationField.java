@@ -30,9 +30,17 @@ public class RegistrationField {
     @Column(name = "type", nullable = false)
     private String type;
 
-    /** JSON array of option strings (select / multiselect only). */
+    /** JSON array of option strings (select / radio / multiselect only). */
     @Column(name = "options")
     private String options;
+
+    /** field_key of the choice question this one depends on; null = always shown. */
+    @Column(name = "show_if_key")
+    private String showIfKey;
+
+    /** JSON array of that question's options that make this one appear. */
+    @Column(name = "show_if_values")
+    private String showIfValues;
 
     @Column(name = "required", nullable = false)
     @Builder.Default

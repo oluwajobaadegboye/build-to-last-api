@@ -96,6 +96,14 @@ public class Program {
     @Column(name = "reg_description", columnDefinition = "text")
     private String regDescription;
 
+    /** Colour set for the registration page and program header (see PAGE_THEMES); null = picked from the name. */
+    @Column(name = "page_theme", length = 20)
+    private String pageTheme;
+
+    /** Registration landing design (see LANDING_STYLES); null = the default ("centered"). */
+    @Column(name = "landing_style", length = 20)
+    private String landingStyle;
+
     @Column(name = "timezone")
     private String timezone;
 
@@ -179,6 +187,14 @@ public class Program {
     @Column(name = "max_registrations")
     private Integer maxRegistrations;
 
+    /** Page colour sets an admin can pick; the frontend's programTheme.ts holds the same keys. */
+    public static final java.util.Set<String> PAGE_THEMES =
+        java.util.Set.of("violet", "teal", "amber", "blue", "rose", "forest", "graphite", "plum");
+
+    /** Registration landing designs an admin can pick; the frontend's landingStyles.ts holds the same keys. */
+    public static final java.util.Set<String> LANDING_STYLES =
+        java.util.Set.of("split", "centered", "event", "ticket", "aurora", "story", "bento", "orbit", "minimal", "card");
+
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 
     /** Normalised lodging type; unknown or blank values fall back to "hotel". */
@@ -190,6 +206,21 @@ public class Program {
     @Column(name = "breakout_num_groups")
     @Builder.Default
     private Integer breakoutNumGroups = 7;
+
+    /** Attendees see their breakout group on their status page. */
+    @Column(name = "show_breakout_group", nullable = false)
+    @Builder.Default
+    private Boolean showBreakoutGroup = true;
+
+    /** Registration asks for gender (Male / Female, required). On unless the admin turns it off. */
+    @Column(name = "ask_gender", nullable = false)
+    @Builder.Default
+    private Boolean askGender = true;
+
+    /** Registration asks for a WhatsApp/phone number (required). On unless the admin turns it off. */
+    @Column(name = "ask_phone", nullable = false)
+    @Builder.Default
+    private Boolean askPhone = true;
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;

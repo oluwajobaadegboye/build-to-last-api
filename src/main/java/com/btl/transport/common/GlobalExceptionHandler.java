@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -62,6 +63,13 @@ public class GlobalExceptionHandler {
         body.put("timestamp", OffsetDateTime.now().toString());
         body.put("fields", fields);
         return ResponseEntity.badRequest().body(body);
+    }
+
+    // File bigger than spring.servlet.multipart.max-file-size
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleTooLarge(MaxUploadSizeExceededException ex) {
+        log.warn("Upload too large: {}", ex.getMessage());
+        return error(HttpStatus.PAYLOAD_TOO_LARGE, "This file is too large. The maximum is 10 MB.");
     }
 
     // Static resource misses (e.g. browser requesting favicon.ico) — intentionally silent

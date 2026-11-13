@@ -60,6 +60,11 @@ public class AdminAuthController {
         failures.entrySet().removeIf(e -> { e.getValue().removeIf(t -> t.isBefore(cutoff)); return e.getValue().isEmpty(); });
     }
 
+    /** Called after a password reset, so a locked-out admin can sign in with the new password straight away. */
+    void clearFailures(String username) {
+        if (username != null) failures.remove(username.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
     public record LoginRequest(String username, String password) {}
 
     @Operation(summary = "Admin login", description = "Authenticate with username and password to receive a JWT bearer token")

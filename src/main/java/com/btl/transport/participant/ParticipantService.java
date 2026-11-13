@@ -77,10 +77,30 @@ public class ParticipantService {
         throw new RegistrationClosedException(com.btl.transport.program.RegistrationRules.message(regState));
     }
 
-    /** @param customAnswersJson already-validated answers JSON, or null to leave answers untouched */
     @Transactional
     public Participant register(
         String fullName, String phone, String email,
+        Integer hotelId, boolean shuttleOptIn,
+        String arrivalAirline, String arrivalFlightNumber, LocalDateTime arrivalDatetime,
+        String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
+        String programId, String state, String customAnswersJson
+    ) {
+        return register(fullName, null, null, null, phone, email, hotelId, shuttleOptIn,
+            arrivalAirline, arrivalFlightNumber, arrivalDatetime,
+            departureAirline, departureFlightNumber, departureDatetime,
+            programId, state, customAnswersJson);
+    }
+
+    /**
+     * @param fullName          "First Last" (callers build it from first/last when they have them)
+     * @param firstName         null for older clients that only send a full name
+     * @param gender            already-validated "male" / "female", or null
+     * @param customAnswersJson already-validated answers JSON, or null to leave answers untouched
+     */
+    @Transactional
+    public Participant register(
+        String fullName, String firstName, String lastName, String gender,
+        String phone, String email,
         Integer hotelId, boolean shuttleOptIn,
         String arrivalAirline, String arrivalFlightNumber, LocalDateTime arrivalDatetime,
         String departureAirline, String departureFlightNumber, LocalDateTime departureDatetime,
@@ -114,6 +134,9 @@ public class ParticipantService {
                 }
                 // Stub was created by CSV room import — complete the registration in-place
                 stub.setFullName(fullName);
+                stub.setFirstName(firstName);
+                stub.setLastName(lastName);
+                stub.setGender(gender);
                 stub.setPhone(phone);
                 stub.setShuttleOptIn(shuttleOptIn);
                 stub.setHotel(hotel);
@@ -132,6 +155,9 @@ public class ParticipantService {
                 participant = participantRepository.save(Participant.builder()
                     .btlCode(btlCode)
                     .fullName(fullName)
+                    .firstName(firstName)
+                    .lastName(lastName)
+                    .gender(gender)
                     .email(email)
                     .phone(phone)
                     .status(ParticipantStatus.REGISTERED)

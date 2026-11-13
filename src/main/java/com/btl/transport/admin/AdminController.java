@@ -34,6 +34,7 @@ import com.btl.transport.notification.TwilioService;
 import com.btl.transport.common.Leg4CalculatorService;
 import com.btl.transport.common.enums.FlightStatusType;
 import com.btl.transport.participant.Participant;
+import com.btl.transport.participant.PersonName;
 import com.btl.transport.participant.ParticipantRepository;
 import com.btl.transport.run.*;
 import com.btl.transport.infrastructure.StorageService;
@@ -50,7 +51,6 @@ import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -103,6 +103,10 @@ public class AdminController {
 
     public record UpdateParticipantRequest(
         @JsonProperty("full_name")        String fullName,
+        @JsonProperty("first_name")       String firstName,
+        @JsonProperty("last_name")        String lastName,
+        /** "male" | "female" | "" (clears) */
+        String gender,
         @JsonProperty("phone_whatsapp")   String phone,
         String email,
         @JsonProperty("needs_attention")  Boolean needsAttention,
@@ -621,13 +625,51 @@ public class AdminController {
         Participant p = participantRepository.findByBtlCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
-        if (req.fullName()        != null) p.setFullName(req.fullName());
-        if (req.phone()           != null) p.setPhone(req.phone());
-        if (req.email()           != null) p.setEmail(req.email());
+        List<Object> before = auditSnapshot(p);
+        if (req.firstName() != null || req.lastName() != null) {
+            // Split name: both parts required; full_name is rebuilt so every screen shows the new name.
+            String first = PersonName.clean(req.firstName() != null ? req.firstName() : p.getFirstName());
+            String last  = PersonName.clean(req.lastName()  != null ? req.lastName()  : p.getLastName());
+            if (first == null || last == null)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "First name and last name are required");
+            if (first.length() > PersonName.MAX_PART || last.length() > PersonName.MAX_PART)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Names must not exceed 120 characters");
+            p.setFirstName(first);
+            p.setLastName(last);
+            p.setFullName(PersonName.join(first, last));
+        } else if (req.fullName() != null) {
+            String full = PersonName.clean(req.fullName());
+            if (full == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name is required");
+            p.setFullName(full);
+        }
+        if (req.gender() != null) {
+            try { p.setGender(PersonName.gender(req.gender())); }
+            catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage()); }
+        }
+        // Phone and email are only checked when they change, so saving other fields on an older record
+        // (or from an older admin screen that sends every field) keeps working.
+        if (req.phone() != null && !req.phone().equals(p.getPhone() == null ? "" : p.getPhone())) {
+            // "" clears; otherwise international form, e.g. +16418191032 (same rule as registration).
+            String phone = req.phone().replaceAll("[\\s().-]", "");
+            if (phone.isEmpty()) p.setPhone(null);
+            else if (!phone.matches("^\\+[1-9]\\d{7,14}$"))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phone must include the country code, e.g. +16418191032");
+            else p.setPhone(phone);
+        }
+        if (req.email() != null && !req.email().equals(p.getEmail())) {
+            String email = req.email().trim();
+            if (email.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email is required");
+            if (email.length() > 255 || !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a valid email address");
+            if (!email.equalsIgnoreCase(p.getEmail()) && participantRepository.findByEmailIgnoreCaseAndProgramId(email, p.getProgramId())
+                    .filter(other -> !other.getId().equals(p.getId())).isPresent())
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Another participant in this program already uses this email");
+            p.setEmail(email);
+        }
         if (req.needsAttention()  != null) p.setNeedsAttention(req.needsAttention());
         if (req.attentionReason() != null) p.setAttentionReason(req.attentionReason());
         if (req.notes()           != null) p.setNotes(req.notes());
-        if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup());
+        if (req.breakoutGroup()   != null) p.setBreakoutGroup(req.breakoutGroup() <= 0 ? null : req.breakoutGroup()); // 0 clears
         if (req.customAnswers()   != null) {
             // Admin edits: types/options checked, required not enforced. Answers to removed questions are kept.
             Map<String, Object> merged = new LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));
@@ -645,12 +687,29 @@ public class AdminController {
         }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
+        Audit.detail(auditChanges(before, auditSnapshot(p)));
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
         Flight departure = flights.stream()
             .filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
         return ResponseEntity.ok(toParticipantAdminResponse(p, arrival, departure));
+    }
+
+    private static final List<String> AUDIT_FIELDS =
+        List.of("name", "gender", "phone", "email", "attention flag", "attention reason", "notes", "breakout group", "additional info");
+
+    /** Values compared before/after an edit, in AUDIT_FIELDS order, to log which fields changed. */
+    private static List<Object> auditSnapshot(Participant p) {
+        return java.util.Arrays.asList(p.getFullName(), p.getGender(), p.getPhone(), p.getEmail(), p.getNeedsAttention(),
+            p.getAttentionReason(), p.getNotes(), p.getBreakoutGroup(), p.getCustomAnswers());
+    }
+
+    private static String auditChanges(List<Object> before, List<Object> after) {
+        List<String> changed = new ArrayList<>();
+        for (int i = 0; i < AUDIT_FIELDS.size(); i++)
+            if (!java.util.Objects.equals(before.get(i), after.get(i))) changed.add(AUDIT_FIELDS.get(i));
+        return changed.isEmpty() ? "No changes" : String.join(", ", changed);
     }
 
     public record AssignBreakoutGroupsRequest(@JsonProperty("num_groups") int numGroups) {}
@@ -1648,7 +1707,8 @@ public class AdminController {
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure, boolean boardedArrival, boolean boardedDeparture) {
         return new AdminDtos.ParticipantAdminResponse(
-            p.getBtlCode(), p.getFullName(), p.getPhone(), p.getEmail(), p.getState(),
+            p.getBtlCode(), p.getFullName(), p.getFirstName(), p.getLastName(), p.getGender(),
+            p.getPhone(), p.getEmail(), p.getState(),
             toHotelDto(p.getHotel()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,
@@ -1682,18 +1742,19 @@ public class AdminController {
             + "Open your driver app here:\n" + driverLink + "\n\n"
             + "Bookmark this link — it's your personal access. Do not share it.\n\n"
             + brand.teamName();
-        try {
-            ClassPathResource res =
-                new ClassPathResource("templates/email-driver-access.html");
-            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(d.getName()))
-                .replace("{{driver_link}}", driverLink);
-            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
-            sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), html, plain);
-        } catch (IOException e) {
-            log.warn("Driver email HTML template not found, falling back to plain text");
-            sendGridService.sendEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your Driver App Access"), plain);
-        }
+        String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            .title("Your driver app is ready")
+            .preheader("Open your driver app to see your assigned runs")
+            .greeting(d.getName())
+            .paragraph("You've been added as a volunteer driver for " + brand.nameOrGeneric()
+                + ". Open your driver app to see the runs assigned to you.")
+            .button("Open driver app", driverLink)
+            .bullets("Good to know", List.of(
+                "Bookmark the link. It's your personal access to the driver app.",
+                "It's unique to you, so please don't share it.",
+                "Your coordinator can resend it any time."))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), d.getEmail(), d.getName(), brand.subject("Your driver app access"), html, plain);
     }
 
     private void sendAdminWelcomeEmail(AdminUser u, String plainPassword, String programId) {
@@ -1710,21 +1771,22 @@ public class AdminController {
             + "Sign in here: " + loginUrl + "\n\n"
             + "Please change your password after your first sign-in (available in the sidebar).\n\n"
             + brand.teamName();
-        try {
-            ClassPathResource res =
-                new ClassPathResource("templates/email-admin-welcome.html");
-            String html = new String(res.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
-                .replace("{{name}}", com.btl.transport.notification.ProgramBranding.escape(displayName))
-                .replace("{{username}}", com.btl.transport.notification.ProgramBranding.escape(u.getUsername()))
-                .replace("{{password}}", plainPassword)
-                .replace("{{role}}", roleLabel)
-                .replace("{{login_url}}", loginUrl);
-            for (var e : brand.htmlVars().entrySet()) html = html.replace("{{" + e.getKey() + "}}", e.getValue());
-            sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), html, plain);
-        } catch (IOException e) {
-            log.warn("Admin welcome email HTML template not found, falling back to plain text");
-            sendGridService.sendEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your Admin Access"), plain);
-        }
+        String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            .title("Your admin account is ready")
+            .preheader("Sign in to manage " + brand.nameOrGeneric())
+            .greeting(displayName)
+            .paragraph("An admin account has been created for you for " + brand.nameOrGeneric()
+                + ". Use these details to sign in.")
+            .details(null, List.of(
+                com.btl.transport.notification.EmailLayout.row("Username", u.getUsername()),
+                com.btl.transport.notification.EmailLayout.row("Temporary password", plainPassword),
+                com.btl.transport.notification.EmailLayout.row("Access", roleLabel)))
+            .button("Sign in", loginUrl)
+            .bullets("Next steps", List.of(
+                "Change your password after you sign in (it's in the sidebar).",
+                "Contact your coordinator if you have trouble signing in."))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), u.getEmail(), displayName, brand.subject("Your admin access"), html, plain);
     }
 
     private AdminDtos.DriverAdminDto toDriverDto(Driver d) {
@@ -1802,6 +1864,7 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> createAdminUser(
             @RequestHeader(value = "X-Program-Id", required = false) String programId,
             @RequestBody CreateAdminUserRequest req) {
+        Audit.subject(req.username());
         if (req.username() == null || req.password() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "username and password required"));
         }
@@ -2754,6 +2817,23 @@ public class AdminController {
         if (req.registrationOpen()      != null) p.setRegistrationOpen(req.registrationOpen());
         if (req.regTitle()       != null) p.setRegTitle(req.regTitle().isBlank() ? null : req.regTitle());
         if (req.regDescription() != null) p.setRegDescription(req.regDescription().isBlank() ? null : req.regDescription());
+        if (req.pageTheme() != null) {
+            // "" = automatic (colour picked from the program name)
+            String t = req.pageTheme().trim().toLowerCase();
+            // a named colour set, or a custom colour as "#rrggbb"
+            if (!t.isEmpty() && !Program.PAGE_THEMES.contains(t) && !t.matches("^#[0-9a-f]{6}$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown page colour");
+            }
+            p.setPageTheme(t.isEmpty() ? null : t);
+        }
+        if (req.landingStyle() != null) {
+            // "" = the default design
+            String s = req.landingStyle().trim().toLowerCase();
+            if (!s.isEmpty() && !Program.LANDING_STYLES.contains(s)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown page design");
+            }
+            p.setLandingStyle(s.isEmpty() ? null : s);
+        }
         if (req.timezone()       != null && !req.timezone().isBlank()) p.setTimezone(req.timezone());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
@@ -2797,6 +2877,8 @@ public class AdminController {
             p.getRegistrationOpen() != null ? p.getRegistrationOpen() : true,
             p.getRegTitle(),
             p.getRegDescription(),
+            p.getPageTheme(),
+            p.getLandingStyle(),
             p.getTimezone() != null ? p.getTimezone() : "America/New_York",
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),
@@ -2852,6 +2934,7 @@ public class AdminController {
     @Operation(summary = "Upload file", description = "Uploads a file (e.g. program logo) to storage and returns the public URL")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, String>> upload(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The file is empty.");
         String url = storageService.store(file);
         return ResponseEntity.ok(Map.of("url", url));
     }
