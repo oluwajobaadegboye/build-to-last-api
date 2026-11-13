@@ -100,6 +100,10 @@ public class Program {
     @Column(name = "page_theme", length = 20)
     private String pageTheme;
 
+    /** Registration landing design (see LANDING_STYLES); null = the default ("centered"). */
+    @Column(name = "landing_style", length = 20)
+    private String landingStyle;
+
     @Column(name = "timezone")
     private String timezone;
 
@@ -186,6 +190,10 @@ public class Program {
     /** Page colour sets an admin can pick; the frontend's programTheme.ts holds the same keys. */
     public static final java.util.Set<String> PAGE_THEMES =
         java.util.Set.of("violet", "teal", "amber", "blue", "rose", "forest", "graphite", "plum");
+
+    /** Registration landing designs an admin can pick; the frontend's landingStyles.ts holds the same keys. */
+    public static final java.util.Set<String> LANDING_STYLES =
+        java.util.Set.of("split", "centered", "event", "ticket", "aurora", "story", "bento", "orbit", "minimal", "card");
 
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 

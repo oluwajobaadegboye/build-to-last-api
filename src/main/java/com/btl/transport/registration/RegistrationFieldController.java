@@ -13,8 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Admin CRUD for a program's custom registration questions (program = X-Program-Id). */
 @Tag(name = "Registration fields", description = "Custom questions asked at registration")
@@ -32,8 +34,12 @@ public class RegistrationFieldController {
         String type,
         List<String> options,
         Boolean required,
-        @JsonProperty("help_text") String helpText
+        @JsonProperty("help_text") String helpText,
+        /** Omitted = unchanged; { key: "" } or { key: null } = always show. */
+        @JsonProperty("show_if") ShowIf showIf
     ) {}
+
+    public record ShowIf(String key, List<String> values) {}
 
     public record OrderRequest(List<Integer> ids) {}
 
@@ -65,6 +71,38 @@ public class RegistrationFieldController {
         if (choice && usable < 1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add at least one option");
     }
 
+    /**
+     * Applies a follow-up condition to {@code f}: the question it depends on must be another active
+     * choice question in the program, the trigger answers must be among its options, and conditions can't loop.
+     */
+    private void applyShowIf(RegistrationField f, ShowIf showIf) {
+        if (showIf == null) return;
+        if (showIf.key() == null || showIf.key().isBlank()) { f.setShowIfKey(null); f.setShowIfValues(null); return; }
+        String key = showIf.key().trim();
+        if (key.equals(f.getFieldKey())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A question can't depend on itself");
+        Map<String, RegistrationField> byKey = new HashMap<>();
+        for (RegistrationField o : repository.findByProgramIdOrderBySortOrderAscIdAsc(f.getProgramId())) byKey.put(o.getFieldKey(), o);
+        RegistrationField parent = byKey.get(key);
+        if (parent == null || !Boolean.TRUE.equals(parent.getActive()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The question this depends on doesn't exist");
+        if (!RegistrationFieldService.isChoice(parent.getType()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A follow-up can only depend on a dropdown or multiple-choice question");
+        List<String> opts = service.options(parent);
+        List<String> values = showIf.values() == null ? List.of() : showIf.values().stream()
+            .filter(Objects::nonNull).map(String::trim).filter(v -> !v.isEmpty()).distinct().toList();
+        if (values.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick at least one answer that shows this question");
+        if (!opts.containsAll(values)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick answers from that question's options");
+        // No loops: walk up from the parent; we must never reach this question.
+        RegistrationField cur = parent;
+        for (int depth = 0; cur != null && depth < 20; depth++) {
+            if (cur.getFieldKey().equals(f.getFieldKey()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That would make these questions depend on each other");
+            cur = cur.getShowIfKey() == null ? null : byKey.get(cur.getShowIfKey());
+        }
+        f.setShowIfKey(key);
+        f.setShowIfValues(service.optionsJson(values));
+    }
+
     @Operation(summary = "List questions", description = "All questions for the program, including removed ones (active=false)")
     @GetMapping
     public List<Map<String, Object>> list(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -93,6 +131,7 @@ public class RegistrationFieldController {
             .helpText(req.helpText() == null || req.helpText().isBlank() ? null : req.helpText().trim())
             .sortOrder(nextOrder)
             .build();
+        applyShowIf(f, req.showIf());
         return service.toDto(repository.save(f));
     }
 
@@ -112,6 +151,7 @@ public class RegistrationFieldController {
         f.setOptions(choice ? service.optionsJson(options) : null);
         if (req.required() != null) f.setRequired(req.required());
         if (req.helpText() != null) f.setHelpText(req.helpText().isBlank() ? null : req.helpText().trim());
+        applyShowIf(f, req.showIf());
         return service.toDto(repository.save(f));
     }
 

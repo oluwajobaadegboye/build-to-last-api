@@ -2820,10 +2820,19 @@ public class AdminController {
         if (req.pageTheme() != null) {
             // "" = automatic (colour picked from the program name)
             String t = req.pageTheme().trim().toLowerCase();
-            if (!t.isEmpty() && !Program.PAGE_THEMES.contains(t)) {
+            // a named colour set, or a custom colour as "#rrggbb"
+            if (!t.isEmpty() && !Program.PAGE_THEMES.contains(t) && !t.matches("^#[0-9a-f]{6}$")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown page colour");
             }
             p.setPageTheme(t.isEmpty() ? null : t);
+        }
+        if (req.landingStyle() != null) {
+            // "" = the default design
+            String s = req.landingStyle().trim().toLowerCase();
+            if (!s.isEmpty() && !Program.LANDING_STYLES.contains(s)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown page design");
+            }
+            p.setLandingStyle(s.isEmpty() ? null : s);
         }
         if (req.timezone()       != null && !req.timezone().isBlank()) p.setTimezone(req.timezone());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
@@ -2869,6 +2878,7 @@ public class AdminController {
             p.getRegTitle(),
             p.getRegDescription(),
             p.getPageTheme(),
+            p.getLandingStyle(),
             p.getTimezone() != null ? p.getTimezone() : "America/New_York",
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),

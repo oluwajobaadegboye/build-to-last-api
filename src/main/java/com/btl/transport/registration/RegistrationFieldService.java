@@ -64,9 +64,52 @@ public class RegistrationFieldService {
         m.put("options", options(f));
         m.put("required", Boolean.TRUE.equals(f.getRequired()));
         m.put("help_text", f.getHelpText());
+        m.put("show_if", showIfDto(f));
         m.put("sort_order", f.getSortOrder());
         m.put("active", Boolean.TRUE.equals(f.getActive()));
         return m;
+    }
+
+    /** The answers that make a follow-up question appear (empty when it has no condition). */
+    public List<String> showIfValues(RegistrationField f) {
+        if (f.getShowIfValues() == null || f.getShowIfValues().isBlank()) return List.of();
+        try { return objectMapper.readValue(f.getShowIfValues(), new TypeReference<List<String>>() {}); }
+        catch (Exception e) { return List.of(); }
+    }
+
+    private Map<String, Object> showIfDto(RegistrationField f) {
+        if (f.getShowIfKey() == null || f.getShowIfKey().isBlank()) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("key", f.getShowIfKey());
+        m.put("values", showIfValues(f));
+        return m;
+    }
+
+    /**
+     * Whether a question is on the form for these answers: always, unless it is a follow-up whose
+     * question (itself shown, active) wasn't answered with one of its trigger options.
+     * A follow-up whose question was removed is hidden.
+     */
+    public boolean isShown(RegistrationField f, Map<String, RegistrationField> activeByKey, Map<String, Object> answers) {
+        RegistrationField cur = f;
+        for (int depth = 0; depth < 20; depth++) {
+            String parentKey = cur.getShowIfKey();
+            if (parentKey == null || parentKey.isBlank()) return true;
+            RegistrationField parent = activeByKey.get(parentKey);
+            if (parent == null || parent == f) return false;
+            if (!answerMatches(answers.get(parentKey), showIfValues(cur))) return false;
+            cur = parent;
+        }
+        return false; // a loop of conditions; never shown
+    }
+
+    private static boolean answerMatches(Object answer, List<String> values) {
+        if (answer == null || values.isEmpty()) return false;
+        if (answer instanceof Collection<?> c) {
+            for (Object o : c) if (o != null && values.contains(String.valueOf(o).trim())) return true;
+            return false;
+        }
+        return values.contains(String.valueOf(answer).trim());
     }
 
     public List<Map<String, Object>> activeFieldDtos(String programId) {
@@ -104,8 +147,15 @@ public class RegistrationFieldService {
         Map<String, String> errors = new LinkedHashMap<>();
         if (programId == null) return out;
 
-        for (RegistrationField f : repository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId)) {
+        List<RegistrationField> active = repository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId);
+        Map<String, RegistrationField> activeByKey = new HashMap<>();
+        for (RegistrationField f : active) activeByKey.put(f.getFieldKey(), f);
+
+        for (RegistrationField f : active) {
             String key = f.getFieldKey();
+            // Attendee registration: a follow-up that doesn't apply isn't required and its answer is dropped.
+            // Admin edits send only the changed answers, so there the condition isn't checked.
+            if (enforceRequired && !isShown(f, activeByKey, in)) continue;
             Object raw = in.get(key);
             boolean blank = raw == null
                 || (raw instanceof String s && s.isBlank())

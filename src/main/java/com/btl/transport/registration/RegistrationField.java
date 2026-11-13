@@ -34,6 +34,14 @@ public class RegistrationField {
     @Column(name = "options")
     private String options;
 
+    /** field_key of the choice question this one depends on; null = always shown. */
+    @Column(name = "show_if_key")
+    private String showIfKey;
+
+    /** JSON array of that question's options that make this one appear. */
+    @Column(name = "show_if_values")
+    private String showIfValues;
+
     @Column(name = "required", nullable = false)
     @Builder.Default
     private Boolean required = false;

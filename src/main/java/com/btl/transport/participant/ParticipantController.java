@@ -148,6 +148,7 @@ public class ParticipantController {
         resp.put("reg_title",       program.getRegTitle());
         resp.put("reg_description", program.getRegDescription());
         resp.put("page_theme",      program.getPageTheme());
+        resp.put("landing_style",   program.getLandingStyle());
         resp.put("ask_gender",      !Boolean.FALSE.equals(program.getAskGender()));
         resp.put("ask_phone",       !Boolean.FALSE.equals(program.getAskPhone()));
         resp.put("hotels", hotelList);
