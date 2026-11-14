@@ -47,6 +47,11 @@ public final class AuditCatalog {
         r("POST", "/registration-fields/([^/]+)/restore", "form", "Restored question", Kind.QUESTION),
         r("PATCH", "/registration-fields/([^/]+)", "form", "Edited question", Kind.QUESTION),
         r("DELETE", "/registration-fields/([^/]+)", "form", "Removed question", Kind.QUESTION),
+        r("POST", "/registration-sections", "form", "Added question section"),
+        r("PUT", "/registration-sections/order", "form", "Reordered question sections"),
+        r("PUT", "/registration-sections/souvenirs", "form", "Moved the souvenir questions"),
+        r("PATCH", "/registration-sections/([^/]+)", "form", "Renamed question section"),
+        r("DELETE", "/registration-sections/([^/]+)", "form", "Removed question section"),
         // Participants
         r("POST", "/participants/([^/]+)/resend-code", "participants", "Resent the registration code to", Kind.PARTICIPANT_CODE),
         r("POST", "/participants/assign-breakout-groups", "participants", "Assigned breakout groups"),

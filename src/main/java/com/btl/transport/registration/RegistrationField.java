@@ -42,6 +42,10 @@ public class RegistrationField {
     @Column(name = "show_if_values")
     private String showIfValues;
 
+    /** Step (registration_sections id) this question is asked in; null = the first step. */
+    @Column(name = "section_id")
+    private Integer sectionId;
+
     @Column(name = "required", nullable = false)
     @Builder.Default
     private Boolean required = false;

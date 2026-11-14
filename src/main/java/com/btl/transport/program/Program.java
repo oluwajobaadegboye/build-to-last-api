@@ -104,6 +104,14 @@ public class Program {
     @Column(name = "landing_style", length = 20)
     private String landingStyle;
 
+    /** Heading of the registration step that holds the custom questions; null = "Additional Info". */
+    @Column(name = "questions_title", length = 60)
+    private String questionsTitle;
+
+    /** Where souvenir size questions are asked: null = first step, "own" = their own step, else a section id. */
+    @Column(name = "souvenir_step", length = 20)
+    private String souvenirStep;
+
     @Column(name = "timezone")
     private String timezone;
 
@@ -193,7 +201,7 @@ public class Program {
 
     /** Registration landing designs an admin can pick; the frontend's landingStyles.ts holds the same keys. */
     public static final java.util.Set<String> LANDING_STYLES =
-        java.util.Set.of("split", "centered", "event", "ticket", "aurora", "story", "bento", "orbit", "minimal", "card");
+        java.util.Set.of("split", "centered", "event", "ticket", "aurora", "story", "bento", "orbit", "minimal", "card", "harbor", "tide", "showcase");
 
     public static final java.util.Set<String> LODGING_TYPES = java.util.Set.of("hotel", "hostel", "dorm", "cabin", "lodging");
 

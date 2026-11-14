@@ -2834,6 +2834,12 @@ public class AdminController {
             }
             p.setLandingStyle(s.isEmpty() ? null : s);
         }
+        if (req.questionsTitle() != null) {
+            // "" = the default heading ("Additional Info")
+            String t = req.questionsTitle().trim();
+            if (t.length() > 60) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Section title must be 60 characters or fewer");
+            p.setQuestionsTitle(t.isEmpty() ? null : t);
+        }
         if (req.timezone()       != null && !req.timezone().isBlank()) p.setTimezone(req.timezone());
         if (req.hotels()    != null) { p.setHotels(toJsonString(req.hotels())); syncProgramHotels(id, req.hotels()); }
         if (req.morningRuns() != null) p.setMorningRuns(toJsonString(req.morningRuns()));
@@ -2879,6 +2885,7 @@ public class AdminController {
             p.getRegDescription(),
             p.getPageTheme(),
             p.getLandingStyle(),
+            p.getQuestionsTitle(),
             p.getTimezone() != null ? p.getTimezone() : "America/New_York",
             parseJson(p.getHotels(), List.of()),
             parseJson(p.getMorningRuns(), List.of()),

@@ -73,6 +73,7 @@ public class ParticipantController {
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
     private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
+    private final com.btl.transport.registration.RegistrationSectionRepository registrationSectionRepository;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -122,6 +123,10 @@ public class ParticipantController {
         resp.put("name", program.getName());
         resp.put("ini", program.getIni() != null ? program.getIni() : "");
         resp.put("registration_fields", registrationFieldService.activeFieldDtos(program.getId()));
+        // Extra question steps after the first ("questions_title"); souvenir_step says where souvenir questions go.
+        resp.put("registration_sections", registrationSectionRepository.findByProgramIdOrderBySortOrderAscIdAsc(program.getId())
+            .stream().map(com.btl.transport.registration.RegistrationSectionController::toDto).toList());
+        resp.put("souvenir_step", program.getSouvenirStep());
         resp.put("souvenirs", souvenirService.registrationItems(program.getId()));
         resp.put("daily_shuttle_enabled", !Boolean.FALSE.equals(program.getDailyShuttleEnabled()));
         resp.put("airport_pickups_enabled", !Boolean.FALSE.equals(program.getAirportPickupsEnabled()));
@@ -149,6 +154,7 @@ public class ParticipantController {
         resp.put("reg_description", program.getRegDescription());
         resp.put("page_theme",      program.getPageTheme());
         resp.put("landing_style",   program.getLandingStyle());
+        resp.put("questions_title", program.getQuestionsTitle());
         resp.put("ask_gender",      !Boolean.FALSE.equals(program.getAskGender()));
         resp.put("ask_phone",       !Boolean.FALSE.equals(program.getAskPhone()));
         resp.put("hotels", hotelList);

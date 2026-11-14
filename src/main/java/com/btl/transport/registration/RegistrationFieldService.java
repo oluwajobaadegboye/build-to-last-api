@@ -65,6 +65,7 @@ public class RegistrationFieldService {
         m.put("required", Boolean.TRUE.equals(f.getRequired()));
         m.put("help_text", f.getHelpText());
         m.put("show_if", showIfDto(f));
+        m.put("section_id", f.getSectionId());
         m.put("sort_order", f.getSortOrder());
         m.put("active", Boolean.TRUE.equals(f.getActive()));
         return m;

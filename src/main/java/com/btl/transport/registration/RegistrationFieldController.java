@@ -26,6 +26,7 @@ import java.util.Objects;
 public class RegistrationFieldController {
 
     private final RegistrationFieldRepository repository;
+    private final RegistrationSectionRepository sectionRepository;
     private final RegistrationFieldService service;
     private final AdminAccess adminAccess;
 
@@ -36,7 +37,9 @@ public class RegistrationFieldController {
         Boolean required,
         @JsonProperty("help_text") String helpText,
         /** Omitted = unchanged; { key: "" } or { key: null } = always show. */
-        @JsonProperty("show_if") ShowIf showIf
+        @JsonProperty("show_if") ShowIf showIf,
+        /** Step to ask it in: a section id, 0 = the first step; omitted = unchanged (first step when adding). */
+        @JsonProperty("section_id") Integer sectionId
     ) {}
 
     public record ShowIf(String key, List<String> values) {}
@@ -103,6 +106,46 @@ public class RegistrationFieldController {
         f.setShowIfValues(service.optionsJson(values));
     }
 
+    /** Sets the step {@code f} is asked in; the section must belong to the same program (0 = first step). */
+    private void applySection(RegistrationField f, Integer sectionId) {
+        if (sectionId == null) return;
+        if (sectionId == 0) { f.setSectionId(null); return; }
+        RegistrationSection sec = sectionRepository.findById(sectionId)
+            .filter(x -> x.getProgramId().equals(f.getProgramId()))
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "That section doesn't exist"));
+        f.setSectionId(sec.getId());
+    }
+
+    /**
+     * A follow-up is always asked in the same step as the question it depends on, so attendees never
+     * meet a question whose trigger is on another page. Puts {@code f} in its parent's step and carries
+     * its own follow-ups (and theirs) along with it.
+     */
+    private void keepFollowUpsTogether(RegistrationField f) {
+        Map<String, RegistrationField> byKey = new HashMap<>();
+        List<RegistrationField> all = repository.findByProgramIdOrderBySortOrderAscIdAsc(f.getProgramId());
+        for (RegistrationField o : all) byKey.put(o.getFieldKey(), o);
+        byKey.put(f.getFieldKey(), f);
+        if (f.getShowIfKey() != null && byKey.containsKey(f.getShowIfKey())) {
+            f.setSectionId(byKey.get(f.getShowIfKey()).getSectionId());
+        }
+        java.util.ArrayDeque<RegistrationField> queue = new java.util.ArrayDeque<>(List.of(f));
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        while (!queue.isEmpty()) {
+            RegistrationField cur = queue.poll();
+            if (!seen.add(cur.getFieldKey())) continue;
+            for (RegistrationField o : all) {
+                if (cur.getFieldKey().equals(o.getShowIfKey()) && !o.getFieldKey().equals(f.getFieldKey())) {
+                    if (!Objects.equals(o.getSectionId(), f.getSectionId())) {
+                        o.setSectionId(f.getSectionId());
+                        repository.save(o);
+                    }
+                    queue.add(o);
+                }
+            }
+        }
+    }
+
     @Operation(summary = "List questions", description = "All questions for the program, including removed ones (active=false)")
     @GetMapping
     public List<Map<String, Object>> list(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
@@ -131,7 +174,9 @@ public class RegistrationFieldController {
             .helpText(req.helpText() == null || req.helpText().isBlank() ? null : req.helpText().trim())
             .sortOrder(nextOrder)
             .build();
+        applySection(f, req.sectionId());
         applyShowIf(f, req.showIf());
+        keepFollowUpsTogether(f);
         return service.toDto(repository.save(f));
     }
 
@@ -151,7 +196,9 @@ public class RegistrationFieldController {
         f.setOptions(choice ? service.optionsJson(options) : null);
         if (req.required() != null) f.setRequired(req.required());
         if (req.helpText() != null) f.setHelpText(req.helpText().isBlank() ? null : req.helpText().trim());
+        applySection(f, req.sectionId());
         applyShowIf(f, req.showIf());
+        keepFollowUpsTogether(f);
         return service.toDto(repository.save(f));
     }
 
