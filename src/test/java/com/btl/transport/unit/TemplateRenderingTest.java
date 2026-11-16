@@ -26,8 +26,8 @@ class TemplateRenderingTest {
     @Test
     void renders_multiple_variables() {
         String result = service.renderTemplate(
-            "Hi {{name}}, code {{btl_code}}",
-            Map.of("name", "Jane", "btl_code", "BTL-001")
+            "Hi {{name}}, code {{reg_code}}",
+            Map.of("name", "Jane", "reg_code", "BTL-001")
         );
         assertThat(result).isEqualTo("Hi Jane, code BTL-001");
     }
@@ -45,9 +45,9 @@ class TemplateRenderingTest {
 
     @Test
     void registration_template_substitutes_all_vars() {
-        String template = "Hi {{name}}, your code is {{btl_code}}. Track: {{link}}";
+        String template = "Hi {{name}}, your code is {{reg_code}}. Track: {{link}}";
         String result = service.renderTemplate(template, Map.of(
-            "name", "Adeyemi", "btl_code", "BTL-042", "link", "https://btl2026.com/status?code=BTL-042"
+            "name", "Adeyemi", "reg_code", "BTL-042", "link", "https://btl2026.com/status?code=BTL-042"
         ));
         assertThat(result).doesNotContain("{{");
     }

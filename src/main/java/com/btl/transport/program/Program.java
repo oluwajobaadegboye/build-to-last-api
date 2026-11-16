@@ -112,6 +112,10 @@ public class Program {
     @Column(name = "souvenir_step", length = 20)
     private String souvenirStep;
 
+    /** Rooms and hostels can have chaperones (shown in attendees' help and as "My Group" for the chaperone). */
+    @Column(name = "chaperones_enabled")
+    private Boolean chaperonesEnabled;
+
     @Column(name = "timezone")
     private String timezone;
 
@@ -167,6 +171,33 @@ public class Program {
     @Column(name = "fee_currency", nullable = false, length = 3)
     @Builder.Default
     private String feeCurrency = "USD";
+
+    /** Show the registration fee on the public registration page (null = off). */
+    @Column(name = "show_fee_on_landing")
+    private Boolean showFeeOnLanding;
+
+    /** Label for the fee on the registration page; null = "Registration fee". */
+    @Column(name = "fee_label", length = 40)
+    private String feeLabel;
+
+    /** When full, new sign-ups join a waitlist instead of being turned away (null = off). */
+    @Column(name = "waitlist_enabled")
+    private Boolean waitlistEnabled;
+
+    /** Payment reminder emails (manual button and automatic); receipts use paymentEmailsEnabled. Null = off. */
+    @Column(name = "payment_reminders_enabled")
+    private Boolean paymentRemindersEnabled;
+
+    /** Send one automatic payment reminder this many days before the start date (null = never). */
+    @Column(name = "auto_reminder_days")
+    private Integer autoReminderDays;
+
+    @Column(name = "auto_reminder_sent_at")
+    private OffsetDateTime autoReminderSentAt;
+
+    /** Attendees may correct their own name, phone and answers from their status page (null = off). */
+    @Column(name = "attendee_self_edit")
+    private Boolean attendeeSelfEdit;
 
     /** Attendees see their payment status/balance on their status page. */
     @Column(name = "show_payment_to_attendees", nullable = false)

@@ -31,6 +31,8 @@ public final class AuditCatalog {
         r("PUT", "/participants/([^/]+)/check-in", "checkin", "Changed check-in for", Kind.PARTICIPANT_CODE),
         // Payments ("Sent payment reminders" is also the cooldown key in ProgramOpsController — keep it as is)
         r("POST", "/participants/([^/]+)/payments", "payments", "Recorded a payment for", Kind.PARTICIPANT_CODE),
+        r("POST", "/participants/([^/]+)/refunds", "payments", "Recorded a refund for", Kind.PARTICIPANT_CODE),
+        r("POST", "/participants/([^/]+)/admit", "registrations", "Gave a place (off the waitlist) to", Kind.PARTICIPANT_CODE),
         r("DELETE", "/participants/([^/]+)/payments/[^/]+", "payments", "Deleted a payment for", Kind.PARTICIPANT_CODE),
         r("PATCH", "/participants/([^/]+)/payment-status", "payments", "Changed payment status for", Kind.PARTICIPANT_CODE),
         r("POST", "/payments/reminders", "payments", "Sent payment reminders"),
@@ -68,6 +70,11 @@ public final class AuditCatalog {
         r("PUT", "/users/([^/]+)", "team", "Changed access for", Kind.ADMIN),
         r("DELETE", "/users/([^/]+)", "team", "Removed admin", Kind.ADMIN),
         // Accommodation
+        r("PUT", "/chaperones/enabled", "accommodation", "Turned chaperones"),
+        r("PUT", "/chaperones/rooms/[^/]+", "accommodation", "Changed the chaperone of"),
+        r("POST", "/chaperones/hotels", "accommodation", "Added a chaperone to"),
+        r("PATCH", "/chaperones/hotels/[^/]+", "accommodation", "Changed a chaperone at"),
+        r("DELETE", "/chaperones/hotels/[^/]+", "accommodation", "Removed a chaperone from"),
         r("POST", "/room-assignments/import", "accommodation", "Imported rooms from a file"),
         r("POST", "/room-assignments/notify", "accommodation", "Emailed room details to everyone"),
         r("POST", "/room-assignments/backfill-participants", "accommodation", "Linked rooms to participants"),

@@ -43,6 +43,9 @@ public class ProgramOpsController {
     private final SouvenirService souvenirService;
     private final AuditLogRepository auditLogRepository;
     private final AdminAccess adminAccess;
+    private final com.btl.transport.payment.ParticipantPaymentRepository paymentRepository;
+    private final com.btl.transport.notification.NotificationService notificationService;
+    private final com.btl.transport.participant.ParticipantService participantService;
 
     private Program program(String id) {
         Program p = programRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
@@ -68,11 +71,19 @@ public class ProgramOpsController {
         /** "YYYY-MM-DDTHH:mm" in the program's timezone; "" clears */
         @JsonProperty("registration_closes_at") String registrationClosesAt,
         /** 0 clears */
-        @JsonProperty("max_registrations") Integer maxRegistrations
+        @JsonProperty("max_registrations") Integer maxRegistrations,
+        @JsonProperty("show_fee_on_landing") Boolean showFeeOnLanding,
+        /** "" = the default ("Registration fee") */
+        @JsonProperty("fee_label") String feeLabel,
+        @JsonProperty("waitlist_enabled") Boolean waitlistEnabled,
+        @JsonProperty("payment_reminders_enabled") Boolean paymentRemindersEnabled,
+        /** 0 = no automatic reminder */
+        @JsonProperty("auto_reminder_days") Integer autoReminderDays,
+        @JsonProperty("attendee_self_edit") Boolean attendeeSelfEdit
     ) {}
 
     private Map<String, Object> policies(Program p) {
-        long registered = participantRepository.countByProgramId(p.getId());
+        long registered = participantRepository.countByProgramIdAndWaitlistedAtIsNull(p.getId());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("show_payment_to_attendees", Boolean.TRUE.equals(p.getShowPaymentToAttendees()));
         m.put("registrations_see_amounts", !Boolean.FALSE.equals(p.getRegistrationsSeeAmounts()));
@@ -82,6 +93,15 @@ public class ProgramOpsController {
         m.put("ask_phone", !Boolean.FALSE.equals(p.getAskPhone()));
         m.put("registration_closes_at", p.getRegistrationClosesAt());
         m.put("max_registrations", p.getMaxRegistrations());
+        m.put("show_fee_on_landing", Boolean.TRUE.equals(p.getShowFeeOnLanding()));
+        m.put("fee_label", p.getFeeLabel());
+        m.put("waitlist_enabled", Boolean.TRUE.equals(p.getWaitlistEnabled()));
+        m.put("waitlisted", participantRepository.countByProgramId(p.getId()) - registered);
+        m.put("payment_reminders_enabled", Boolean.TRUE.equals(p.getPaymentRemindersEnabled()));
+        m.put("auto_reminder_days", p.getAutoReminderDays());
+        m.put("auto_reminder_sent_at", p.getAutoReminderSentAt() != null ? p.getAutoReminderSentAt().toString() : null);
+        m.put("start_date", p.getStartDate());
+        m.put("attendee_self_edit", Boolean.TRUE.equals(p.getAttendeeSelfEdit()));
         m.put("registered", registered);
         m.put("registration_state", RegistrationRules.state(p, registered, OffsetDateTime.now()));
         m.put("timezone", p.getTimezone());
@@ -119,7 +139,81 @@ public class ProgramOpsController {
             if (req.maxRegistrations() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Capacity can't be negative");
             p.setMaxRegistrations(req.maxRegistrations() == 0 ? null : req.maxRegistrations());
         }
+        if (req.showFeeOnLanding() != null) p.setShowFeeOnLanding(req.showFeeOnLanding());
+        if (req.feeLabel() != null) {
+            String label = req.feeLabel().trim();
+            if (label.length() > 40) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Keep the fee label to 40 characters");
+            p.setFeeLabel(label.isEmpty() ? null : label);
+        }
+        if (req.waitlistEnabled() != null) p.setWaitlistEnabled(req.waitlistEnabled());
+        if (req.paymentRemindersEnabled() != null) p.setPaymentRemindersEnabled(req.paymentRemindersEnabled());
+        if (req.autoReminderDays() != null) {
+            int d = req.autoReminderDays();
+            if (d < 0 || d > 60) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose between 1 and 60 days before the program");
+            Integer next = d == 0 ? null : d;
+            // A new timing is a new reminder: it may go out again.
+            if (!Objects.equals(next, p.getAutoReminderDays())) p.setAutoReminderSentAt(null);
+            p.setAutoReminderDays(next);
+        }
+        if (req.attendeeSelfEdit() != null) p.setAttendeeSelfEdit(req.attendeeSelfEdit());
         return policies(programRepository.save(p));
+    }
+
+    // ── Payments ledger export ─────────────────────────────────────────────
+
+    private static String csv(Object v) {
+        String s = v == null ? "" : String.valueOf(v);
+        // Neutralise spreadsheet formulas, then quote.
+        if (!s.isEmpty() && "=+-@\t\r".indexOf(s.charAt(0)) >= 0 && !s.matches("-?\\d+(\\.\\d+)?")) s = "'" + s;
+        return "\"" + s.replace("\"", "\"\"") + "\"";
+    }
+
+    @Operation(summary = "Payments ledger (CSV)", description = "Every payment and refund recorded for the program, oldest first")
+    @GetMapping(value = "/payments/export.csv", produces = "text/csv")
+    @Transactional(readOnly = true)
+    public org.springframework.http.ResponseEntity<String> ledger(@RequestHeader(value = "X-Program-Id", required = false) String programId) {
+        Program prog = current(programId);
+        if (!PaymentService.canSeeAmounts(prog, adminAccess.permissions())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Amounts are hidden for your access");
+        Map<Integer, Participant> byId = new HashMap<>();
+        for (Participant p : participantRepository.findAllByProgramIdWithHotel(prog.getId())) byId.put(p.getId(), p);
+        String cur = prog.getFeeCurrency() != null ? prog.getFeeCurrency() : "USD";
+        java.time.ZoneId zone;
+        try { zone = java.time.ZoneId.of(prog.getTimezone() != null ? prog.getTimezone() : "America/New_York"); }
+        catch (Exception e) { zone = java.time.ZoneId.of("America/New_York"); }
+        java.time.format.DateTimeFormatter when = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        StringBuilder out = new StringBuilder("Date,Name,Code,Type,Method,Amount,Currency,Note,Recorded by\n");
+        for (var pay : paymentRepository.findByProgramIdOrderByRecordedAtAsc(prog.getId())) {
+            Participant p = byId.get(pay.getParticipantId());
+            boolean refund = PaymentService.REFUND.equals(pay.getKind());
+            BigDecimal amt = refund ? pay.getAmount().negate() : pay.getAmount();
+            out.append(String.join(",",
+                csv(pay.getRecordedAt() != null ? pay.getRecordedAt().atZoneSameInstant(zone).format(when) : ""),
+                csv(p != null ? p.getFullName() : "(removed)"), csv(p != null ? p.getRegCode() : ""),
+                csv(refund ? "Refund" : "Payment"), csv(pay.getMethod()), csv(amt.toPlainString()), csv(cur),
+                csv(pay.getNote()), csv(pay.getRecordedBy()))).append("\n");
+        }
+        return org.springframework.http.ResponseEntity.ok()
+            .header("Content-Disposition", "attachment; filename=\"payments.csv\"")
+            .contentType(org.springframework.http.MediaType.parseMediaType("text/csv; charset=UTF-8"))
+            .body(out.toString());
+    }
+
+    // ── Waitlist ───────────────────────────────────────────────────────────
+
+    @Operation(summary = "Give a waitlisted person a place", description = "Takes them off the waitlist and emails them that they're in")
+    @PostMapping("/participants/{code}/admit")
+    @Transactional
+    public Map<String, Object> admit(@PathVariable String code) {
+        Participant p = participantRepository.findByRegCode(code)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
+        adminAccess.requireProgram(p.getProgramId());
+        if (p.getWaitlistedAt() == null) return Map.of("waitlisted", false);
+        p.setWaitlistedAt(null);
+        participantService.onAdmitted(p);
+        p.setUpdatedAt(OffsetDateTime.now());
+        participantRepository.save(p);
+        try { notificationService.sendWaitlistPlace(p); } catch (Exception ignored) { /* the place stands even if the email fails */ }
+        return Map.of("waitlisted", false);
     }
 
     // ── Overview ────────────────────────────────────────────────────────────
@@ -134,9 +228,11 @@ public class ProgramOpsController {
         List<Participant> people = participantRepository.findAllByProgramIdWithHotel(prog.getId());
         Map<String, Object> out = new LinkedHashMap<>();
 
-        long registered = people.size();
+        long waitlisted = people.stream().filter(p -> p.getWaitlistedAt() != null).count();
+        long registered = people.size() - waitlisted;
         Map<String, Object> reg = new LinkedHashMap<>();
         reg.put("registered", registered);
+        reg.put("waitlisted", waitlisted);
         reg.put("checked_in", people.stream().filter(p -> p.getCheckedInAt() != null).count());
         reg.put("state", RegistrationRules.state(prog, registered, OffsetDateTime.now()));
         reg.put("closes_at", prog.getRegistrationClosesAt());
@@ -146,12 +242,14 @@ public class ProgramOpsController {
         if (full || perms.contains(AdminPermissions.REGISTRATIONS) || perms.contains(AdminPermissions.PAYMENTS)) {
             Map<String, Object> pay = new LinkedHashMap<>();
             Map<String, Long> byStatus = new LinkedHashMap<>(Map.of(PaymentService.PAID, 0L, PaymentService.PARTIAL, 0L, PaymentService.UNPAID, 0L));
-            for (Participant p : people) byStatus.merge(PaymentService.normalizeStatus(p.getPaymentStatus()), 1L, Long::sum);
+            List<Participant> placed = people.stream().filter(p -> p.getWaitlistedAt() == null).toList();
+            for (Participant p : placed) byStatus.merge(PaymentService.normalizeStatus(p.getPaymentStatus()), 1L, Long::sum);
             pay.put("paid", byStatus.get(PaymentService.PAID));
             pay.put("partial", byStatus.get(PaymentService.PARTIAL));
             pay.put("unpaid", byStatus.get(PaymentService.UNPAID));
             pay.put("currency", prog.getFeeCurrency() != null ? prog.getFeeCurrency() : "USD");
             pay.put("emails_enabled", Boolean.TRUE.equals(prog.getPaymentEmailsEnabled()));
+            pay.put("reminders_enabled", Boolean.TRUE.equals(prog.getPaymentRemindersEnabled()));
             if (PaymentService.canSeeAmounts(prog, perms)) {
                 Map<Integer, BigDecimal> totals = paymentService.totals(people.stream().map(Participant::getId).toList());
                 BigDecimal collected = totals.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -159,7 +257,7 @@ public class ProgramOpsController {
                 BigDecimal outstanding = null;
                 if (fee != null) {
                     outstanding = BigDecimal.ZERO;
-                    for (Participant p : people) {
+                    for (Participant p : placed) {
                         if (PaymentService.PAID.equals(PaymentService.normalizeStatus(p.getPaymentStatus()))) continue;
                         outstanding = outstanding.add(fee.subtract(totals.getOrDefault(p.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO));
                     }
@@ -251,8 +349,9 @@ public class ProgramOpsController {
         Map<Integer, Map<Integer, ParticipantSouvenir>> recs = items.isEmpty() ? Map.of() : souvenirService.recordsForProgram(prog.getId());
         List<Map<String, Object>> out = new ArrayList<>();
         for (Participant p : participantRepository.findAllByProgramIdWithHotel(prog.getId())) {
+            if (p.getWaitlistedAt() != null) continue;  // no place yet: not expected at the desk
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("btl_code", p.getBtlCode());
+            m.put("reg_code", p.getRegCode());
             m.put("full_name", p.getFullName());
             m.put("email", p.getEmail());
             m.put("phone", p.getPhone());
@@ -275,7 +374,7 @@ public class ProgramOpsController {
     @PutMapping("/participants/{code}/check-in")
     @Transactional
     public Map<String, Object> checkIn(@PathVariable String code, @RequestBody CheckInRequest req) {
-        Participant p = participantRepository.findByBtlCode(code).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
+        Participant p = participantRepository.findByRegCode(code).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
         adminAccess.requireProgram(p.getProgramId());
         boolean in = !Boolean.FALSE.equals(req.checkedIn());
         Audit.action(in ? "Checked in" : "Undid check-in for");
@@ -353,7 +452,7 @@ public class ProgramOpsController {
             if (m.kind() == AuditCatalog.Kind.PARTICIPANT_CODE && m.target() != null) codes.add(m.target());
         }
         Map<String, String> names = new HashMap<>();
-        if (!codes.isEmpty()) participantRepository.findByBtlCodeIn(codes).forEach(p -> names.put(p.getBtlCode(), p.getFullName()));
+        if (!codes.isEmpty()) participantRepository.findByRegCodeIn(codes).forEach(p -> names.put(p.getRegCode(), p.getFullName()));
         return names;
     }
 

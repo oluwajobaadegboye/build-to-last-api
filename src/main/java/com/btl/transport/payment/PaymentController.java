@@ -28,11 +28,12 @@ public class PaymentController {
     private final AdminAccess adminAccess;
     private final com.btl.transport.program.ProgramRepository programRepository;
 
-    public record RecordPaymentRequest(BigDecimal amount, String note, String status) {}
+    public record RecordPaymentRequest(BigDecimal amount, String note, String status, String method) {}
+    public record RefundRequest(BigDecimal amount, String note, String method) {}
     public record StatusRequest(String status) {}
 
     private Participant load(String code) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
         adminAccess.requireProgram(p.getProgramId());
         return p;
@@ -51,12 +52,25 @@ public class PaymentController {
     @PostMapping("/payments")
     public Map<String, Object> record(@PathVariable String code, @RequestBody RecordPaymentRequest req) {
         Participant p = load(code);
-        Map<String, Object> out = paymentService.record(p, req.amount(), req.note(), req.status(), adminAccess.currentUsername());
+        Map<String, Object> out = paymentService.record(p, req.amount(), req.note(), req.status(), adminAccess.currentUsername(), req.method());
         if (req.amount() != null) {
             String currency = programRepository.findById(p.getProgramId()).map(Program::getFeeCurrency).orElse("");
             Audit.detail((req.amount().stripTrailingZeros().toPlainString() + " " + currency).trim()
+                + (req.method() != null && !req.method().isBlank() ? " · " + req.method().trim() : "")
                 + (req.note() != null && !req.note().isBlank() ? " · " + req.note().trim() : ""));
         }
+        return out;
+    }
+
+    @Operation(summary = "Record a refund", description = "Body: { amount, note?, method? } — money given back (e.g. on Zelle); subtracted from the total paid")
+    @PostMapping("/refunds")
+    public Map<String, Object> refund(@PathVariable String code, @RequestBody RefundRequest req) {
+        Participant p = load(code);
+        Map<String, Object> out = paymentService.refund(p, req.amount(), req.note(), req.method(), adminAccess.currentUsername());
+        String currency = programRepository.findById(p.getProgramId()).map(Program::getFeeCurrency).orElse("");
+        Audit.detail(("Refund " + req.amount().stripTrailingZeros().toPlainString() + " " + currency).trim()
+            + (req.method() != null && !req.method().isBlank() ? " · " + req.method().trim() : "")
+            + (req.note() != null && !req.note().isBlank() ? " · " + req.note().trim() : ""));
         return out;
     }
 

@@ -1,6 +1,6 @@
 package com.btl.transport.participant;
 
-import com.btl.transport.common.BtlCodeService;
+import com.btl.transport.common.RegCodeService;
 import com.btl.transport.common.Leg4CalculatorService;
 import com.btl.transport.common.enums.Direction;
 import com.btl.transport.common.enums.FlightStatusType;
@@ -39,7 +39,7 @@ public class ParticipantService {
     private final FlightRepository flightRepository;
     private final HotelRepository hotelRepository;
     private final AirportConfigRepository airportConfigRepository;
-    private final BtlCodeService btlCodeService;
+    private final RegCodeService regCodeService;
     private final Leg4CalculatorService leg4Calculator;
     private final NotificationService notificationService;
     private final SheetsWebhookService sheetsWebhookService;
@@ -68,12 +68,23 @@ public class ParticipantService {
      * People already on the list (e.g. imported for rooms) can still complete their registration when it's full.
      */
     public void assertRegistrationOpen(Program program, String email) {
-        if (program == null) return;
+        joinsWaitlist(program, email);
+    }
+
+    /**
+     * Throws when the program isn't taking registrations; returns true when this sign-up goes on the
+     * waitlist (the program is full and has a waitlist, and the person isn't already on the list).
+     */
+    public boolean joinsWaitlist(Program program, String email) {
+        if (program == null) return false;
         String regState = com.btl.transport.program.RegistrationRules.state(
-            program, participantRepository.countByProgramId(program.getId()), OffsetDateTime.now());
-        if (regState.equals(com.btl.transport.program.RegistrationRules.OPEN)) return;
-        boolean alreadyListed = email != null && participantRepository.findByEmailIgnoreCaseAndProgramId(email, program.getId()).isPresent();
-        if (regState.equals(com.btl.transport.program.RegistrationRules.FULL) && alreadyListed) return;
+            program, participantRepository.countByProgramIdAndWaitlistedAtIsNull(program.getId()), OffsetDateTime.now());
+        if (regState.equals(com.btl.transport.program.RegistrationRules.OPEN)) return false;
+        boolean alreadyListed = email != null && (participantRepository.findByEmailIgnoreCaseAndProgramId(email, program.getId()).isPresent()
+            // Already placed in a room on the spreadsheet: they have a place.
+            || roomOccupantRepository.findByProgramIdAndEmailIgnoreCase(program.getId(), email).isPresent());
+        if (regState.equals(com.btl.transport.program.RegistrationRules.FULL) && alreadyListed) return false;
+        if (regState.equals(com.btl.transport.program.RegistrationRules.FULL) && Boolean.TRUE.equals(program.getWaitlistEnabled())) return true;
         throw new RegistrationClosedException(com.btl.transport.program.RegistrationRules.message(regState));
     }
 
@@ -109,7 +120,7 @@ public class ParticipantService {
         Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
         // With a capacity, lock the program row so simultaneous sign-ups are counted one at a time.
         if (program != null && program.getMaxRegistrations() != null) programRepository.findByIdForUpdate(program.getId());
-        assertRegistrationOpen(program, email);
+        boolean toWaitlist = joinsWaitlist(program, email);
         // No flights are recorded while the program doesn't offer airport pickups, whatever the client sends.
         // (Shuttle opt-in is left as sent: turning the shuttle off only hides it, so attendees who
         // register meanwhile must still be opted in if it is turned back on.)
@@ -151,9 +162,9 @@ public class ParticipantService {
                 participant = participantRepository.save(stub);
             } else {
                 String ini = program != null ? program.getIni() : null;
-                String btlCode = btlCodeService.generateNextCode(programId, ini);
+                String regCode = regCodeService.generateNextCode(programId, ini);
                 participant = participantRepository.save(Participant.builder()
-                    .btlCode(btlCode)
+                    .regCode(regCode)
                     .fullName(fullName)
                     .firstName(firstName)
                     .lastName(lastName)
@@ -167,13 +178,14 @@ public class ParticipantService {
                     .programId(programId)
                     .state(state)
                     .customAnswers(customAnswersJson)
-                    .breakoutGroup(numGroups > 0 ? assignNextBreakoutGroup(programId, numGroups) : null)
+                    // No group while on the waitlist: one is given when they get a place.
+                    .breakoutGroup(numGroups > 0 && !toWaitlist ? assignNextBreakoutGroup(programId, numGroups) : null)
                     .createdAt(OffsetDateTime.now())
                     .updatedAt(OffsetDateTime.now())
                     .build());
                 // Link to any existing room occupant imported before this participant registered
                 final Participant saved = participant;
-                roomOccupantRepository
+                if (!toWaitlist) roomOccupantRepository
                     .findByProgramIdAndEmailIgnoreCase(programId, email)
                     .ifPresent(occ -> {
                         if (occ.getParticipant() == null) {
@@ -188,9 +200,9 @@ public class ParticipantService {
                 throw new IllegalArgumentException("An account with this email address already exists");
             }
             String ini = program != null ? program.getIni() : null;
-            String btlCode = btlCodeService.generateNextCode("default", ini);
+            String regCode = regCodeService.generateNextCode("default", ini);
             participant = participantRepository.save(Participant.builder()
-                .btlCode(btlCode)
+                .regCode(regCode)
                 .fullName(fullName)
                 .email(email)
                 .phone(phone)
@@ -248,10 +260,14 @@ public class ParticipantService {
             flightRepository.save(departure);
         }
 
+        if (toWaitlist && participant.getWaitlistedAt() == null) {
+            participant.setWaitlistedAt(OffsetDateTime.now());
+            participant = participantRepository.save(participant);
+        }
         try {
             notificationService.sendRegistrationConfirmation(participant);
         } catch (Exception e) {
-            log.warn("Notification failed for {} — registration still succeeded: {}", participant.getBtlCode(), e.getMessage());
+            log.warn("Notification failed for {} — registration still succeeded: {}", participant.getRegCode(), e.getMessage());
         }
 
         sheetsWebhookService.appendRegistration(
@@ -265,11 +281,11 @@ public class ParticipantService {
     }
 
     @Transactional
-    public Flight updateFlight(String btlCode, String direction,
+    public Flight updateFlight(String regCode, String direction,
                                String airline, String flightNumber,
                                OffsetDateTime submittedDatetime) {
-        Participant participant = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new IllegalArgumentException("Participant not found: " + btlCode));
+        Participant participant = participantRepository.findByRegCode(regCode)
+            .orElseThrow(() -> new IllegalArgumentException("Participant not found: " + regCode));
 
         Direction dir = "departure".equalsIgnoreCase(direction)
             ? Direction.TO_AIRPORT : Direction.TO_HOTEL;
@@ -316,6 +332,16 @@ public class ParticipantService {
             try { return ZoneId.of(program.getTimezone()); } catch (Exception ignored) {}
         }
         return ZoneId.of("America/New_York");
+    }
+
+    /** Gives a person who just got a place off the waitlist a breakout group (when the program uses groups). */
+    public void onAdmitted(Participant p) {
+        Program program = p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+        int numGroups = program != null && program.getBreakoutNumGroups() != null ? program.getBreakoutNumGroups() : 0;
+        if (numGroups > 0 && p.getBreakoutGroup() == null) p.setBreakoutGroup(assignNextBreakoutGroup(p.getProgramId(), numGroups));
+        if (p.getEmail() != null) roomOccupantRepository.findByProgramIdAndEmailIgnoreCase(p.getProgramId(), p.getEmail())
+            .filter(occ -> occ.getParticipant() == null)
+            .ifPresent(occ -> { occ.setParticipant(p); roomOccupantRepository.save(occ); });
     }
 
     private int assignNextBreakoutGroup(String programId, int numGroups) {

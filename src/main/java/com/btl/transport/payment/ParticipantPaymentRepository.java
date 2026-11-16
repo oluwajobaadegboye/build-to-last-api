@@ -11,10 +11,12 @@ import java.util.List;
 public interface ParticipantPaymentRepository extends JpaRepository<ParticipantPayment, Integer> {
     List<ParticipantPayment> findByParticipantIdOrderByRecordedAtAsc(Integer participantId);
 
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM ParticipantPayment p WHERE p.participantId = :pid")
+    List<ParticipantPayment> findByProgramIdOrderByRecordedAtAsc(String programId);
+
+    @Query("SELECT COALESCE(SUM(CASE WHEN p.kind = 'refund' THEN -p.amount ELSE p.amount END), 0) FROM ParticipantPayment p WHERE p.participantId = :pid")
     BigDecimal totalForParticipant(@Param("pid") Integer participantId);
 
     /** [participantId, total] rows for a page of participants. */
-    @Query("SELECT p.participantId, SUM(p.amount) FROM ParticipantPayment p WHERE p.participantId IN :ids GROUP BY p.participantId")
+    @Query("SELECT p.participantId, SUM(CASE WHEN p.kind = 'refund' THEN -p.amount ELSE p.amount END) FROM ParticipantPayment p WHERE p.participantId IN :ids GROUP BY p.participantId")
     List<Object[]> totalsFor(@Param("ids") Collection<Integer> participantIds);
 }

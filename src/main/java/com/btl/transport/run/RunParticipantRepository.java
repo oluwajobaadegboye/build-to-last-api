@@ -15,6 +15,9 @@ public interface RunParticipantRepository extends JpaRepository<RunParticipant, 
 
     List<RunParticipant> findByIdRunId(Integer runId);
 
+    /** Passengers of many runs at once (list views). */
+    List<RunParticipant> findByIdRunIdIn(java.util.Collection<Integer> runIds);
+
     List<RunParticipant> findByIdParticipantId(Integer participantId);
 
     @Query("SELECT rp FROM RunParticipant rp WHERE rp.id.participantId = :participantId AND rp.id.runId IN :runIds")

@@ -11,12 +11,12 @@ import java.util.Optional;
 @Repository
 public interface ParticipantRepository extends JpaRepository<Participant, Integer> {
 
-    Optional<Participant> findByBtlCode(String btlCode);
+    Optional<Participant> findByRegCode(String regCode);
 
-    List<Participant> findByBtlCodeIn(java.util.Collection<String> btlCodes);
+    List<Participant> findByRegCodeIn(java.util.Collection<String> regCodes);
 
-    @Query("SELECT p FROM Participant p LEFT JOIN FETCH p.hotel WHERE p.btlCode = :btlCode")
-    Optional<Participant> findByBtlCodeWithHotel(String btlCode);
+    @Query("SELECT p FROM Participant p LEFT JOIN FETCH p.hotel WHERE p.regCode = :regCode")
+    Optional<Participant> findByRegCodeWithHotel(String regCode);
 
     Optional<Participant> findByPhone(String phone);
 
@@ -33,6 +33,9 @@ public interface ParticipantRepository extends JpaRepository<Participant, Intege
     List<Participant> findAllByProgramIdWithHotel(String programId);
 
     long countByProgramId(String programId);
+
+    /** People with a place (not on the waitlist) — what capacity counts. */
+    long countByProgramIdAndWaitlistedAtIsNull(String programId);
 
     long countByProgramIdAndNeedsAttentionTrue(String programId);
 

@@ -99,9 +99,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String clientIp(HttpServletRequest request) {
+        // The load balancer appends the address it saw to X-Forwarded-For, so the LAST entry is the real
+        // client. The first entry is whatever the caller sent and could be faked to dodge the limits.
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
+            String[] hops = forwarded.split(",");
+            String last = hops[hops.length - 1].trim();
+            if (!last.isEmpty()) return last;
         }
         return request.getRemoteAddr();
     }

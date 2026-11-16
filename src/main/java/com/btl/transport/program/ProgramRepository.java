@@ -5,6 +5,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface ProgramRepository extends JpaRepository<Program, String> {
+    /** Programs an account created since a time (anti-spam cap on self-serve creation). */
+    long countByCreatedByAdminIdAndCreatedAtAfter(Integer createdByAdminId, java.time.OffsetDateTime after);
+
 
     /** Row lock so concurrent registrations can't overshoot a program's capacity. */
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

@@ -53,15 +53,90 @@ public class PaymentService {
         return total.compareTo(fee) >= 0 ? PAID : PARTIAL;
     }
 
-    @Transactional
+    public static final String REFUND = "refund";
+
+    private static String method(String m) {
+        if (m == null || m.isBlank()) return null;
+        String t = m.trim();
+        return t.length() > 30 ? t.substring(0, 30) : t;
+    }
+
     public Map<String, Object> record(Participant p, BigDecimal amount, String note, String statusIfNoFee, String recordedBy) {
+        return record(p, amount, note, statusIfNoFee, recordedBy, null);
+    }
+
+    /**
+     * A refund given back to the attendee (e.g. sent back on Zelle). Stored as its own ledger line and
+     * subtracted from the total paid; it can't be more than what they've paid.
+     */
+    @Transactional
+    public Map<String, Object> refund(Participant p, BigDecimal amount, String note, String method, String recordedBy) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Refund must be more than 0");
+        }
+        if (amount.scale() > 2) amount = amount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal paid = paymentRepository.totalForParticipant(p.getId());
+        if (amount.compareTo(paid) > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A refund can't be more than they've paid (" + paid.setScale(2, RoundingMode.HALF_UP).toPlainString() + ")");
+        }
+        paymentRepository.save(ParticipantPayment.builder()
+            .participantId(p.getId()).programId(p.getProgramId())
+            .amount(amount).kind(REFUND).method(method(method))
+            .note(note == null || note.isBlank() ? null : note.trim())
+            .recordedBy(recordedBy)
+            .recordedAt(OffsetDateTime.now())
+            .build());
+        paymentRepository.flush();
+        restatus(p);
+        p.setUpdatedAt(OffsetDateTime.now());
+        participantRepository.save(p);
+        return summary(p);
+    }
+
+    /** Status after the ledger changed: follows the fee when there is one; without a fee, nothing paid = unpaid. */
+    private void restatus(Participant p) {
+        BigDecimal fee = fee(programOf(p));
+        BigDecimal total = paymentRepository.totalForParticipant(p.getId());
+        if (fee != null) p.setPaymentStatus(statusFor(total, fee));
+        else if (total.signum() <= 0) p.setPaymentStatus(UNPAID);
+    }
+
+    /**
+     * After the program's fee changes: re-check everyone who has paid something against the new fee.
+     * People with nothing recorded keep their status, so a manual "paid" (a waived fee) isn't undone.
+     * Returns how many statuses changed.
+     */
+    @Transactional
+    public int recalculateForProgram(String programId) {
+        Program prog = programRepository.findById(programId).orElse(null);
+        BigDecimal fee = fee(prog);
+        if (fee == null) return 0;
+        List<Participant> people = participantRepository.findAllByProgramIdWithHotel(programId);
+        Map<Integer, BigDecimal> totals = totals(people.stream().map(Participant::getId).toList());
+        int changed = 0;
+        for (Participant p : people) {
+            BigDecimal total = totals.getOrDefault(p.getId(), BigDecimal.ZERO);
+            if (total.signum() <= 0) continue;
+            String next = statusFor(total, fee);
+            if (!next.equals(normalizeStatus(p.getPaymentStatus()))) {
+                p.setPaymentStatus(next);
+                p.setUpdatedAt(OffsetDateTime.now());
+                participantRepository.save(p);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    @Transactional
+    public Map<String, Object> record(Participant p, BigDecimal amount, String note, String statusIfNoFee, String recordedBy, String method) {
         if (amount == null || amount.signum() <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount must be more than 0");
         }
         if (amount.scale() > 2) amount = amount.setScale(2, RoundingMode.HALF_UP);
         paymentRepository.save(ParticipantPayment.builder()
             .participantId(p.getId()).programId(p.getProgramId())
-            .amount(amount)
+            .amount(amount).method(method(method))
             .note(note == null || note.isBlank() ? null : note.trim())
             .recordedBy(recordedBy)
             .recordedAt(OffsetDateTime.now())
@@ -96,6 +171,7 @@ public class PaymentService {
         out.put("total_paid", null);
         out.put("fee", null);
         out.put("balance", null);
+        out.put("total_refunded", null);
         out.put("payments", List.of());
         out.put("amounts_hidden", true);
         return out;
@@ -124,7 +200,7 @@ public class PaymentService {
             .append("Total paid: ").append(money(summary.get("total_paid"), cur)).append("\n");
         if (summary.get("fee") != null) body.append("Balance: ").append(money(summary.get("balance"), cur)).append("\n");
         body.append("Status: ").append(label(String.valueOf(summary.get("status")))).append("\n\n")
-            .append("Your registration code: ").append(p.getBtlCode()).append("\n\n").append(brand.teamName());
+            .append("Your registration code: ").append(p.getRegCode()).append("\n\n").append(brand.teamName());
         String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
             .title("Payment received")
             .preheader("We've received " + money(amount, cur) + " for " + brand.nameOrGeneric())
@@ -135,7 +211,7 @@ public class PaymentService {
                 com.btl.transport.notification.EmailLayout.row("Total paid", money(summary.get("total_paid"), cur)),
                 com.btl.transport.notification.EmailLayout.row("Balance", summary.get("fee") != null ? money(summary.get("balance"), cur) : null),
                 com.btl.transport.notification.EmailLayout.row("Status", label(String.valueOf(summary.get("status")))),
-                com.btl.transport.notification.EmailLayout.row("Registration code", p.getBtlCode())))
+                com.btl.transport.notification.EmailLayout.row("Registration code", p.getRegCode())))
             .footerNote("Keep this email as your receipt.")
             .html();
         sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment received"), html, body.toString());
@@ -149,8 +225,8 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public int sendReminders(String programId, Collection<String> statuses) {
         Program prog = programRepository.findById(programId).orElse(null);
-        if (prog == null || !Boolean.TRUE.equals(prog.getPaymentEmailsEnabled())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Turn on payment emails for this program first");
+        if (prog == null || !Boolean.TRUE.equals(prog.getPaymentRemindersEnabled())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Turn on payment reminders for this program first (Settings → General)");
         }
         Set<String> wanted = new HashSet<>();
         for (String s : statuses == null || statuses.isEmpty() ? List.of(UNPAID, PARTIAL) : statuses) wanted.add(normalizeStatus(s));
@@ -159,6 +235,7 @@ public class PaymentService {
         int sent = 0;
         for (Participant p : participantRepository.findAllByProgramIdWithHotel(programId)) {
             if (!wanted.contains(normalizeStatus(p.getPaymentStatus())) || p.getEmail() == null || p.getEmail().isBlank()) continue;
+            if (p.getWaitlistedAt() != null) continue;  // no place yet: nothing to pay
             Map<String, Object> s = summary(p);
             Object cur = s.get("currency");
             StringBuilder body = new StringBuilder("Hi ").append(p.getFullName()).append(",\n\n")
@@ -174,7 +251,7 @@ public class PaymentService {
                 .details(null, List.of(
                     com.btl.transport.notification.EmailLayout.row("Paid so far", money(s.get("total_paid"), cur)),
                     com.btl.transport.notification.EmailLayout.row("Balance due", s.get("fee") != null ? money(s.get("balance"), cur) : null),
-                    com.btl.transport.notification.EmailLayout.row("Registration code", p.getBtlCode())))
+                    com.btl.transport.notification.EmailLayout.row("Registration code", p.getRegCode())))
                 .note("If you've already paid, please ignore this message.")
                 .html();
             sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), html, body.toString());
@@ -190,10 +267,7 @@ public class PaymentService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
         paymentRepository.delete(pay);
         paymentRepository.flush();
-        BigDecimal fee = fee(programOf(p));
-        BigDecimal total = paymentRepository.totalForParticipant(p.getId());
-        if (fee != null) p.setPaymentStatus(statusFor(total, fee));
-        else if (total.signum() <= 0) p.setPaymentStatus(UNPAID);
+        restatus(p);
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
         return summary(p);
@@ -226,12 +300,16 @@ public class PaymentService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", pay.getId());
             m.put("amount", pay.getAmount());
+            m.put("kind", REFUND.equals(pay.getKind()) ? REFUND : "payment");
+            m.put("method", pay.getMethod());
             m.put("note", pay.getNote());
             m.put("recorded_by", pay.getRecordedBy());
             m.put("recorded_at", pay.getRecordedAt() != null ? pay.getRecordedAt().toString() : null);
             rows.add(m);
         }
         out.put("payments", rows);
+        out.put("total_refunded", rows.stream().filter(r -> REFUND.equals(r.get("kind")))
+            .map(r -> (BigDecimal) r.get("amount")).reduce(BigDecimal.ZERO, BigDecimal::add));
         return out;
     }
 

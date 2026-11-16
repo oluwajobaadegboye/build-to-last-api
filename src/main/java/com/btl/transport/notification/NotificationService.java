@@ -36,7 +36,7 @@ public class NotificationService {
     // Used when the program hasn't set its own text. Everything program-specific comes from
     // placeholders filled from the program's details (see ProgramBranding), never a fixed program.
     static final String DEFAULT_REGISTRATION =
-        "Hi {{name}}! You're registered for {{program_name}} ✅\nYour code: {{btl_code}}\n"
+        "Hi {{name}}! You're registered for {{program_name}} ✅\nYour code: {{reg_code}}\n"
         + "Use it to see {{covers}}: {{status_url}}\nReply HELP for assistance.";
     static final String DEFAULT_DELAY_MINOR =
         "Hi {{name}}, your flight {{flight}} is delayed by about {{delay_mins}} minutes ⏳ "
@@ -48,19 +48,59 @@ public class NotificationService {
         "Hi {{name}}, your flight {{flight}} has been rescheduled. Original arrival: {{old_time}}. "
         + "New arrival: {{new_time}}. Check {{link}} for your updated pickup details. — {{team_name}}";
     static final String DEFAULT_CANCELLATION =
-        "Hi {{name}} ({{btl_code}}), your flight {{flight}} appears cancelled or changed ❌ "
+        "Hi {{name}} ({{reg_code}}), your flight {{flight}} appears cancelled or changed ❌ "
         + "Please contact a coordinator as soon as possible or reply HELP. — {{team_name}}";
     static final String DEFAULT_ROOM_ASSIGNMENT =
         "Hi {{name}}, your room for {{program_name}} is ready. {{lodging_label}}: {{hotel}}, "
         + "Room: {{room}} ({{room_type}}). View {{covers}}: {{status_url}}";
 
+    /** Sent when an admin gives a waitlisted person a place. */
+    public void sendWaitlistPlace(Participant p) {
+        if (p.getEmail() == null || p.getEmail().isBlank()) return;
+        ProgramBranding brand = ProgramBranding.of(programOf(p.getProgramId()));
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
+        String plain = "Hi " + p.getFullName() + ",\n\nGood news: a place has opened up and you're now registered for "
+            + brand.nameOrGeneric() + ".\n\nYour registration code: " + p.getRegCode() + "\n" + statusLink + "\n\n" + brand.teamName();
+        String html = EmailLayout.forProgram(brand)
+            .title("You have a place")
+            .preheader("You're off the waitlist for " + brand.nameOrGeneric())
+            .greeting(p.getFullName())
+            .paragraph("Good news: a place has opened up and you're now registered for " + brand.nameOrGeneric() + ".")
+            .code("Your registration code", p.getRegCode())
+            .button("View my registration", statusLink)
+            .details("Program details", programRows(brand))
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(),
+            brand.subject("You have a place"), html, plain);
+    }
+
+    /** Sent instead of the confirmation when someone joins a full program's waitlist. */
+    private void sendWaitlistConfirmation(Participant p) {
+        if (p.getEmail() == null || p.getEmail().isBlank()) return;
+        ProgramBranding brand = ProgramBranding.of(programOf(p.getProgramId()));
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
+        String plain = "Hi " + p.getFullName() + ",\n\n" + brand.nameOrGeneric() + " is full, so you're on the waitlist. "
+            + "We'll email you if a place opens up.\n\nYour code: " + p.getRegCode() + "\n\n" + brand.teamName();
+        String html = EmailLayout.forProgram(brand)
+            .title("You're on the waitlist")
+            .preheader(brand.nameOrGeneric() + " is full — you're on the waitlist")
+            .greeting(p.getFullName())
+            .paragraph(brand.nameOrGeneric() + " is full right now, so you're on the waitlist. We'll email you if a place opens up.")
+            .code("Your code", p.getRegCode())
+            .note("Please don't make travel plans until you hear that you have a place.")
+            .html();
+        sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(),
+            brand.subject("You're on the waitlist"), html, plain);
+    }
+
     public void sendRegistrationConfirmation(Participant p) {
         Program program = programOf(p.getProgramId());
+        if (p.getWaitlistedAt() != null) { sendWaitlistConfirmation(p); return; }
         ProgramBranding brand = ProgramBranding.of(program);
-        String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
         Map<String, String> vars = new HashMap<>(brand.textVars());
         vars.put("name", p.getFullName());
-        vars.put("btl_code", p.getBtlCode());
+        vars.put("reg_code", p.getRegCode());
         vars.put("status_url", statusLink);
         String plainBody = renderTemplate(
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateRegistration, DEFAULT_REGISTRATION), vars);
@@ -68,10 +108,10 @@ public class NotificationService {
         if (p.getEmail() != null) {
             String html = EmailLayout.forProgram(brand)
                 .title("You're registered")
-                .preheader("Your registration code is " + p.getBtlCode())
+                .preheader("Your registration code is " + p.getRegCode())
                 .greeting(p.getFullName())
                 .paragraph("Thanks for registering for " + brand.nameOrGeneric() + ". Your place is confirmed.")
-                .code("Your registration code", p.getBtlCode())
+                .code("Your registration code", p.getRegCode())
                 .paragraph("Keep this code handy. Use it any time to see " + vars.get("covers") + ".")
                 .button("View my registration", statusLink)
                 .details("Program details", programRows(brand))
@@ -98,7 +138,7 @@ public class NotificationService {
                 .preheader(flightNumber + " is delayed by about " + delayMins + " minutes")
                 .text(withoutSignoff(body, brand), "this link")
                 .details(null, List.of(EmailLayout.row("Flight", flightNumber), EmailLayout.row("Delay", "About " + delayMins + " minutes")))
-                .button("View my pickup", frontendBaseUrl + "/status?code=" + p.getBtlCode())
+                .button("View my pickup", frontendBaseUrl + "/status?code=" + p.getRegCode())
                 .html();
             sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight delay update"), html, body);
         }
@@ -107,7 +147,7 @@ public class NotificationService {
     public void sendRescheduleNotification(Participant p, String flightNumber,
                                             OffsetDateTime oldTime, OffsetDateTime newTime) {
         ProgramBranding brand = ProgramBranding.of(programOf(p.getProgramId()));
-        String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
         ZoneId zone = zoneFor(p);
         Map<String, String> vars = new HashMap<>(brand.textVars());
         vars.put("name", p.getFullName());
@@ -133,11 +173,11 @@ public class NotificationService {
 
     public void sendCancellationNotification(Participant p, String flightNumber) {
         ProgramBranding brand = ProgramBranding.of(programOf(p.getProgramId()));
-        String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
         Map<String, String> vars = new HashMap<>(brand.textVars());
         vars.put("name", p.getFullName());
         vars.put("flight", flightNumber);
-        vars.put("btl_code", p.getBtlCode());
+        vars.put("reg_code", p.getRegCode());
         vars.put("link", statusLink);
         String body = renderTemplate(
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateCancellation, DEFAULT_CANCELLATION), vars);
@@ -147,7 +187,7 @@ public class NotificationService {
                 .title("Your flight may be cancelled")
                 .preheader(flightNumber + " appears cancelled or changed")
                 .text(withoutSignoff(body, brand), "your registration page")
-                .details(null, List.of(EmailLayout.row("Flight", flightNumber), EmailLayout.row("Registration code", p.getBtlCode())))
+                .details(null, List.of(EmailLayout.row("Flight", flightNumber), EmailLayout.row("Registration code", p.getRegCode())))
                 .button("View my registration", statusLink)
                 .html();
             sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Flight cancellation"), html, body);
@@ -156,8 +196,8 @@ public class NotificationService {
 
     public void sendRoomAssignment(Participant p, String hotelName, String roomLabel,
                                     String roomType, List<String> roommateNames) {
-        String statusLink = frontendBaseUrl + "/status?code=" + p.getBtlCode();
-        sendRoomAssignmentEmail(p.getProgramId(), p.getFullName(), p.getEmail(), p.getBtlCode(), statusLink,
+        String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
+        sendRoomAssignmentEmail(p.getProgramId(), p.getFullName(), p.getEmail(), p.getRegCode(), statusLink,
             hotelName, roomLabel, roomType, roommateNames);
     }
 
@@ -180,7 +220,7 @@ public class NotificationService {
         vars.put("room_type",  roomType);
         vars.put("roommates",  roommatesText);
         vars.put("status_url", statusLink);
-        vars.put("btl_code",   code);
+        vars.put("reg_code",   code);
         String plainBody = renderTemplate(
             textTemplate(programId, NotificationConfig::getTemplateRoomAssignment, DEFAULT_ROOM_ASSIGNMENT), vars);
         boolean hasCode = code != null && !code.isBlank();
@@ -245,7 +285,7 @@ public class NotificationService {
                                    NotificationConfig config,
                                    Participant participant) {
         String context = String.format("%s %s from %s: \"%s\"",
-            participant.getBtlCode(), participant.getFullName(), fromPhone, message);
+            participant.getRegCode(), participant.getFullName(), fromPhone, message);
         if (config.getAdminWhatsapp1() != null)
             twilioService.sendWhatsApp(config.getAdminWhatsapp1(), context);
         if (config.getAdminWhatsapp2() != null)
@@ -270,6 +310,8 @@ public class NotificationService {
     public String renderTemplate(String template, Map<String, String> vars) {
         if (template == null) return "";
         String result = template;
+        // Templates saved before the rename still say {{btl_code}}.
+        if (vars.containsKey("reg_code")) result = result.replace("{{btl_code}}", vars.get("reg_code") != null ? vars.get("reg_code") : "");
         for (var entry : vars.entrySet()) {
             result = result.replace("{{" + entry.getKey() + "}}", entry.getValue() != null ? entry.getValue() : "");
         }

@@ -52,7 +52,7 @@ public class ParticipantExportController {
     private List<Column> columns(String programId, boolean showAmounts) {
         List<Column> c = new ArrayList<>();
         String person = "Personal details", travel = "Travel & stay", prog = "Program";
-        c.add(new Column("code", "Code", prog, r -> s(r.p().getBtlCode())));
+        c.add(new Column("code", "Code", prog, r -> s(r.p().getRegCode())));
         c.add(new Column("full_name", "Full name", person, r -> s(r.p().getFullName())));
         c.add(new Column("first_name", "First name", person, r -> s(r.p().getFirstName())));
         c.add(new Column("last_name", "Last name", person, r -> s(r.p().getLastName())));

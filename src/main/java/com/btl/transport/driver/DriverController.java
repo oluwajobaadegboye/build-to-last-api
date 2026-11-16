@@ -59,7 +59,7 @@ public class DriverController {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record PassengerSummary(
-        @JsonProperty("btl_code")        String btlCode,
+        @JsonProperty("reg_code")        String regCode,
         @JsonProperty("full_name")       String fullName,
         @JsonProperty("boarded")         Boolean boarded,
         @JsonProperty("hotel_name")      String hotelName,
@@ -110,7 +110,7 @@ public class DriverController {
     record UpdateGroupLinkRequest(@JsonProperty("whatsapp_group_link") String whatsappGroupLink) {}
 
     record BoardPassengerRequest(
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         Boolean boarded
     ) {}
 
@@ -126,9 +126,8 @@ public class DriverController {
         List<Run> runs = runRepository.findByDriverIdOrderByConferenceDateAscDepartTimeAsc(driver.getId());
 
         // Batch-load all participants and their flights for this driver's runs
-        List<RunParticipant> allRps = runs.stream()
-            .flatMap(r -> runParticipantRepository.findByIdRunId(r.getId()).stream())
-            .toList();
+        List<RunParticipant> allRps = runs.isEmpty() ? List.of()
+            : runParticipantRepository.findByIdRunIdIn(runs.stream().map(Run::getId).toList());
         List<Integer> allPids = allRps.stream().map(rp -> rp.getId().getParticipantId()).distinct().toList();
         Map<Integer, Participant> participantMap = allPids.isEmpty()
             ? Map.of()
@@ -157,7 +156,7 @@ public class DriverController {
                     flight = pFlights.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null);
                 }
                 return new PassengerSummary(
-                    p.getBtlCode(), p.getFullName(),
+                    p.getRegCode(), p.getFullName(),
                     Boolean.TRUE.equals(rp.getBoarded()),
                     hotelName,
                     p.getPhone(),
@@ -287,8 +286,8 @@ public class DriverController {
         if (run.getDriver() == null || !run.getDriver().getId().equals(driver.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This run is not assigned to you.");
         }
-        Participant participant = participantRepository.findByBtlCode(req.btlCode())
-            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        Participant participant = participantRepository.findByRegCode(req.regCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.regCode()));
         runService.markBoarded(run.getId(), participant.getId(), Boolean.TRUE.equals(req.boarded()));
         return ResponseEntity.ok(Map.of("success", true));
     }

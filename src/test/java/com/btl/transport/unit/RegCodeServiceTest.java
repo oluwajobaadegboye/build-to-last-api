@@ -1,6 +1,6 @@
 package com.btl.transport.unit;
 
-import com.btl.transport.common.BtlCodeService;
+import com.btl.transport.common.RegCodeService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -21,13 +21,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class BtlCodeServiceTest {
+class RegCodeServiceTest {
 
     @Mock
     JdbcTemplate jdbcTemplate;
 
     @InjectMocks
-    BtlCodeService service;
+    RegCodeService service;
 
     // generateNextCode makes two queryForObject calls:
     //   1. programMax: (sql, Long.class, offset, pattern, programId) — 3 varargs

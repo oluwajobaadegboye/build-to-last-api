@@ -152,7 +152,7 @@ public class SouvenirController {
                 if (r != null) perItem.put(String.valueOf(item.getId()), service.recordDto(r));
             }
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("btl_code", p.getBtlCode());
+            m.put("reg_code", p.getRegCode());
             m.put("full_name", p.getFullName());
             m.put("email", p.getEmail());
             m.put("phone", p.getPhone());
@@ -168,7 +168,7 @@ public class SouvenirController {
     public Map<String, Object> updateParticipant(@RequestHeader(value = "X-Program-Id", required = false) String programId,
                                                  @PathVariable String code, @PathVariable Integer itemId,
                                                  @RequestBody UpdateRequest req) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
         adminAccess.requireProgram(p.getProgramId());
         SouvenirItem item = loadItem(itemId, p.getProgramId());

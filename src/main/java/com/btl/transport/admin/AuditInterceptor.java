@@ -93,7 +93,7 @@ public class AuditInterceptor implements HandlerInterceptor, WebMvcConfigurer {
     String nameOf(AuditCatalog.Kind kind, String target) {
         if (target == null) return null;
         return switch (kind) {
-            case PARTICIPANT_CODE -> participants.findByBtlCode(target).map(Participant::getFullName).orElse(null);
+            case PARTICIPANT_CODE -> participants.findByRegCode(target).map(Participant::getFullName).orElse(null);
             case PARTICIPANT_ID -> id(target).flatMap(participants::findById).map(Participant::getFullName).orElse(null);
             case QUESTION -> id(target).flatMap(questions::findById).map(q -> q.getLabel()).orElse(null);
             case SOUVENIR -> id(target).flatMap(souvenirs::findById).map(s -> s.getName()).orElse(null);

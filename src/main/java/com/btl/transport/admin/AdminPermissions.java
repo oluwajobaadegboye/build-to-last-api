@@ -87,11 +87,14 @@ public final class AdminPermissions {
         new Rule("GET", Pattern.compile(P + "/registration-fields$"), VIEW_PARTICIPANTS),
         // Payments
         new Rule("POST", Pattern.compile(P + "/participants/[^/]+/payments$"), Set.of(PAYMENTS)),
+        new Rule("POST", Pattern.compile(P + "/participants/[^/]+/refunds$"), Set.of(PAYMENTS)),
+        new Rule("GET", Pattern.compile(P + "/payments/export\\.csv$"), Set.of(PAYMENTS)),
         new Rule("DELETE", Pattern.compile(P + "/participants/[^/]+/payments/[^/]+$"), Set.of(PAYMENTS)),
         new Rule("PATCH", Pattern.compile(P + "/participants/[^/]+/payment-status$"), Set.of(PAYMENTS)),
         // Accommodation
         new Rule("*", Pattern.compile(P + "/room-assignments(/.*)?$"), Set.of(ACCOMMODATION)),
         new Rule("*", Pattern.compile(P + "/accommodation-contacts(/.*)?$"), Set.of(ACCOMMODATION)),
+        new Rule("*", Pattern.compile(P + "/chaperones(/.*)?$"), Set.of(ACCOMMODATION)),
         new Rule("PATCH", Pattern.compile(P + "/programs/[^/]+/(room-allocation-settings|roommate-visible)$"), Set.of(ACCOMMODATION)),
         // The Accommodation page saves the hotel list through the program update; the controller
         // limits non-full admins to the hotels field.
@@ -103,6 +106,8 @@ public final class AdminPermissions {
         // Check-in desk
         new Rule("GET", Pattern.compile(P + "/check-in$"), Set.of(CHECKIN)),
         new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/check-in$"), Set.of(CHECKIN)),
+        // Waitlist: give someone a place
+        new Rule("POST", Pattern.compile(P + "/participants/[^/]+/admit$"), Set.of(REGISTRATIONS)),
         // Payment reminders
         new Rule("POST", Pattern.compile(P + "/payments/reminders$"), Set.of(PAYMENTS)),
         // Program overview: every admin sees the parts their permissions cover

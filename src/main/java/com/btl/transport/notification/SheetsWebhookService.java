@@ -41,7 +41,7 @@ public class SheetsWebhookService {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("registeredAt",            p.getCreatedAt() != null ? p.getCreatedAt().toString() : "");
-        body.put("btlCode",                 p.getBtlCode());
+        body.put("regCode",                 p.getRegCode());
         body.put("fullName",                p.getFullName());
         body.put("email",                   p.getEmail() != null ? p.getEmail() : "");
         body.put("phone",                   p.getPhone() != null ? p.getPhone() : "");
@@ -63,9 +63,9 @@ public class SheetsWebhookService {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-            log.info("Sheets row appended for {} — HTTP {}", p.getBtlCode(), resp.statusCode());
+            log.info("Sheets row appended for {} — HTTP {}", p.getRegCode(), resp.statusCode());
         } catch (Exception e) {
-            log.warn("Sheets webhook failed for {}: {}", p.getBtlCode(), e.getMessage());
+            log.warn("Sheets webhook failed for {}: {}", p.getRegCode(), e.getMessage());
         }
     }
 }

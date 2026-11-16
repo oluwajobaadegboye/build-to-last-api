@@ -31,6 +31,15 @@ public class ParticipantPayment {
     @Column(name = "note")
     private String note;
 
+    /** payment | refund (refunds are stored as positive amounts and subtracted from the total). */
+    @Column(name = "kind", nullable = false)
+    @Builder.Default
+    private String kind = "payment";
+
+    /** How the money moved, e.g. Zelle, Cash (optional). */
+    @Column(name = "method", length = 30)
+    private String method;
+
     @Column(name = "recorded_by")
     private String recordedBy;
 

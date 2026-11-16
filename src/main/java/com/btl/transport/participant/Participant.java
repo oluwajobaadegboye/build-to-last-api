@@ -21,8 +21,8 @@ public class Participant {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @Column(name = "btl_code", nullable = false, unique = true)
-    private String btlCode;
+    @Column(name = "reg_code", nullable = false, unique = true)
+    private String regCode;
 
     @Column(name = "full_name", nullable = false)
     private String fullName;
@@ -69,6 +69,10 @@ public class Participant {
     /** Venue check-in. */
     @Column(name = "checked_in_at")
     private OffsetDateTime checkedInAt;
+
+    /** On the waitlist since (null = has a place). */
+    @Column(name = "waitlisted_at")
+    private OffsetDateTime waitlistedAt;
 
     @Column(name = "checked_in_by")
     private String checkedInBy;

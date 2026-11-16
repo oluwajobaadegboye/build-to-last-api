@@ -14,7 +14,7 @@ public final class ParticipantDtos {
     // ── Requests ───────────────────────────────────────────────────────────
 
     record UpdateFlightRequest(
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         String direction,
         String airline,
         @JsonProperty("flight_number") String flightNumber,
@@ -52,13 +52,13 @@ public final class ParticipantDtos {
 
     record RegisterResponse(
         boolean success,
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         String message
     ) {}
 
     record UpdateFlightResponse(
         boolean success,
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         String message
     ) {}
 
@@ -72,7 +72,7 @@ public final class ParticipantDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record ParticipantDto(
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         @JsonProperty("full_name") String fullName,
         String phone,
         String email,
@@ -85,8 +85,8 @@ public final class ParticipantDtos {
         @JsonProperty("boarded_departure") boolean boardedDeparture,
         @JsonProperty("breakout_group") Integer breakoutGroup
     ) {
-        /** Neutral alias for btl_code (the registration code). */
-        @JsonProperty("code") public String code() { return btlCode; }
+        /** Neutral alias for reg_code (the registration code). */
+        @JsonProperty("code") public String code() { return regCode; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -163,6 +163,14 @@ public final class ParticipantDtos {
         /** Every active souvenir item: name, the attendee's choice and whether they've collected it. */
         @JsonProperty("souvenirs") List<Map<String, Object>> souvenirs,
         /** Status, paid, fee, balance — only when the program shows payment to attendees; else null. */
-        @JsonProperty("payment") Map<String, Object> payment
+        @JsonProperty("payment") Map<String, Object> payment,
+        /** This attendee's chaperones (room first, then hostel); empty when the program doesn't use chaperones. */
+        @JsonProperty("chaperones") List<Map<String, Object>> chaperones,
+        /** For a chaperone: the rooms/hostels in their care with the people in them; null otherwise. */
+        @JsonProperty("care_group") List<Map<String, Object>> careGroup,
+        /** True while this person is on the waitlist (no place yet). */
+        @JsonProperty("waitlisted") boolean waitlisted,
+        /** Their editable details (name, phone, answers) when the program lets attendees edit them; null otherwise. */
+        @JsonProperty("my_details") Map<String, Object> myDetails
     ) {}
 }

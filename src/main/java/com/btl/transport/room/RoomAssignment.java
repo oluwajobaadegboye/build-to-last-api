@@ -40,6 +40,10 @@ public class RoomAssignment {
     private String gender;
     private String notes;
 
+    /** Registered attendee who looks after this room (chaperones); null = none. */
+    @Column(name = "chaperone_participant_id")
+    private Integer chaperoneParticipantId;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

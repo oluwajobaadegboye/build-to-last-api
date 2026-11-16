@@ -1,6 +1,6 @@
 package com.btl.transport.admin;
 
-import com.btl.transport.common.BtlCodeService;
+import com.btl.transport.common.RegCodeService;
 import com.btl.transport.program.Program;
 import com.btl.transport.program.ProgramDates;
 import com.btl.transport.program.ProgramRepository;
@@ -91,7 +91,7 @@ public class AdminController {
 
     public record BoardingRequest(
         @JsonProperty("run_id") String runId,
-        @JsonProperty("btl_code") String btlCode,
+        @JsonProperty("reg_code") String regCode,
         Boolean boarded
     ) {}
 
@@ -124,7 +124,7 @@ public class AdminController {
     ) {}
 
     public record MoveParticipantRequest(
-        @JsonProperty("btl_code")    String btlCode,
+        @JsonProperty("reg_code")    String regCode,
         @JsonProperty("from_run_id") String fromRunId,
         @JsonProperty("to_run_id")   String toRunId
     ) {}
@@ -162,12 +162,13 @@ public class AdminController {
     private final RoomOccupantRepository roomOccupantRepository;
     private final AccommodationContactRepository accommodationContactRepository;
     private final Leg4CalculatorService leg4Calculator;
-    private final BtlCodeService btlCodeService;
+    private final RegCodeService regCodeService;
     private final AdminAccess adminAccess;
     private final AdminProperties adminProperties;
     private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
     private final ProgramAdminRepository programAdminRepository;
     private final com.btl.transport.payment.ParticipantPaymentRepository participantPaymentRepository;
+    private final com.btl.transport.payment.PaymentService paymentService;
     private final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
         new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
 
@@ -233,7 +234,7 @@ public class AdminController {
             String lc = search.toLowerCase();
             stream = stream.filter(p ->
                 (p.getFullName() != null && p.getFullName().toLowerCase().contains(lc)) ||
-                (p.getBtlCode() != null && p.getBtlCode().toLowerCase().contains(lc)));
+                (p.getRegCode() != null && p.getRegCode().toLowerCase().contains(lc)));
         }
         List<Participant> filtered = stream.toList();
 
@@ -253,6 +254,7 @@ public class AdminController {
             : new HashSet<>(runParticipantRepository.findBoardedArrivalParticipantIds(pageIds, programId));
         Set<Integer> boardedDepartureIds = pageIds.isEmpty() || programId == null ? Set.of()
             : new HashSet<>(runParticipantRepository.findBoardedDepartureParticipantIds(pageIds, programId));
+        if (!pageItems.isEmpty() && amountsVisible(pageItems.get(0).getProgramId())) prefetchPaidTotals(pageItems);
         List<AdminDtos.ParticipantAdminResponse> items = pageItems.stream()
             .map(p -> toParticipantAdminResponse(p, arrivals.get(p.getId()), departures.get(p.getId()),
                 boardedArrivalIds.contains(p.getId()), boardedDepartureIds.contains(p.getId())))
@@ -268,11 +270,11 @@ public class AdminController {
     }
 
     @Operation(summary = "Get participant", description = "Returns a single participant summary by registration code")
-    @GetMapping("/participants/{btlCode}")
+    @GetMapping("/participants/{regCode}")
     @Transactional(readOnly = true)
-    public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String btlCode) {
-        Participant p = participantRepository.findByBtlCodeWithHotel(btlCode)
-            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+    public ResponseEntity<Map<String, Object>> getParticipant(@PathVariable String regCode) {
+        Participant p = participantRepository.findByRegCodeWithHotel(regCode)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + regCode));
         adminAccess.requireProgram(p.getProgramId());
         return ResponseEntity.ok(participantSummary(p));
     }
@@ -319,8 +321,8 @@ public class AdminController {
             .toList();
         List<Map<String, Object>> alerts = flagged.stream().map(p -> {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("alert_id", p.getBtlCode());
-            m.put("btl_code", p.getBtlCode());
+            m.put("alert_id", p.getRegCode());
+            m.put("reg_code", p.getRegCode());
             m.put("participant_name", p.getFullName());
             m.put("hotel_name", p.getHotel() != null ? p.getHotel().getHotelName() : null);
             m.put("alert_type", "needs_attention");
@@ -332,10 +334,10 @@ public class AdminController {
     }
 
     @Operation(summary = "Resolve alert", description = "Clears the needs-attention flag for a participant identified by registration code")
-    @PostMapping("/alerts/{btlCode}/resolve")
-    public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String btlCode) {
-        Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+    @PostMapping("/alerts/{regCode}/resolve")
+    public ResponseEntity<Map<String, Object>> resolveAlert(@PathVariable String regCode) {
+        Participant p = participantRepository.findByRegCode(regCode)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + regCode));
         adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
@@ -367,6 +369,7 @@ public class AdminController {
                 : runRepository.findByConferenceDateWithDetailsOrderByDepartTimeAsc(date);
         }
 
+        prefetchRuns(runs, false);
         return ResponseEntity.ok(runs.stream().map(this::runDetail).toList());
     }
 
@@ -433,8 +436,8 @@ public class AdminController {
         Run run = runRepository.findByRunId(req.runId())
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
         adminAccess.requireProgram(run.getProgramId());
-        Participant participant = participantRepository.findByBtlCode(req.btlCode())
-            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        Participant participant = participantRepository.findByRegCode(req.regCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.regCode()));
         adminAccess.requireProgram(participant.getProgramId());
         boolean boarded = Boolean.TRUE.equals(req.boarded());
         runService.markBoarded(run.getId(), participant.getId(), boarded);
@@ -519,10 +522,10 @@ public class AdminController {
 
     // ── Resend code ──────────────────────────────────────────────────────────
     @Operation(summary = "Resend participant code (admin)", description = "Triggers a re-send of the registration code email for a participant, initiated by an admin")
-    @PostMapping("/participants/{btlCode}/resend-code")
-    public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String btlCode) {
-        Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+    @PostMapping("/participants/{regCode}/resend-code")
+    public ResponseEntity<AdminDtos.SuccessResponse> resendCode(@PathVariable String regCode) {
+        Participant p = participantRepository.findByRegCode(regCode)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + regCode));
         adminAccess.requireProgram(p.getProgramId());
         if (p.getEmail() != null && !p.getEmail().isBlank()) {
             notificationService.sendRegistrationConfirmation(p);
@@ -605,7 +608,7 @@ public class AdminController {
     @Transactional(readOnly = true)
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> getParticipantDetail(
             @PathVariable String code) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -622,7 +625,7 @@ public class AdminController {
     public ResponseEntity<AdminDtos.ParticipantAdminResponse> updateParticipant(
             @PathVariable String code,
             @RequestBody UpdateParticipantRequest req) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
         List<Object> before = auditSnapshot(p);
@@ -727,14 +730,19 @@ public class AdminController {
             ? participantRepository.findAllByProgramId(programId)
             : participantRepository.findAll();
 
-        java.util.Collections.shuffle(participants);
-        for (int i = 0; i < participants.size(); i++) {
-            participants.get(i).setBreakoutGroup((i % req.numGroups()) + 1);
+        // Only people with a place get a group; anyone on the waitlist has theirs cleared.
+        List<Participant> placed = new ArrayList<>();
+        for (Participant p : participants) {
+            if (p.getWaitlistedAt() != null) p.setBreakoutGroup(null); else placed.add(p);
+        }
+        java.util.Collections.shuffle(placed);
+        for (int i = 0; i < placed.size(); i++) {
+            placed.get(i).setBreakoutGroup((i % req.numGroups()) + 1);
         }
         participantRepository.saveAll(participants);
 
         return ResponseEntity.ok(Map.of(
-            "assigned", participants.size(),
+            "assigned", placed.size(),
             "num_groups", req.numGroups()
         ));
     }
@@ -763,7 +771,7 @@ public class AdminController {
                 "submitted_datetime must be ISO-8601 with offset, e.g. 2026-07-10T14:30:00Z");
         }
 
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
 
@@ -856,7 +864,7 @@ public class AdminController {
     @DeleteMapping("/participant/{code}")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> deleteParticipant(@PathVariable String code) {
-        Participant p = participantRepository.findByBtlCode(code)
+        Participant p = participantRepository.findByRegCode(code)
             .orElseThrow(() -> new EntityNotFoundException("Not found: " + code));
         adminAccess.requireProgram(p.getProgramId());
 
@@ -892,12 +900,12 @@ public class AdminController {
 
     // ── Alert (singular path alias) ────────────────────────────────────────
 
-    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{btlCode}/resolve — clears the attention flag for the given registration code")
-    @PostMapping("/alert/{btlCode}/resolve")
+    @Operation(summary = "Resolve alert (alias)", description = "Alias for POST /alerts/{regCode}/resolve — clears the attention flag for the given registration code")
+    @PostMapping("/alert/{regCode}/resolve")
     public ResponseEntity<AdminDtos.SuccessResponse> resolveAlertSingular(
-            @PathVariable String btlCode) {
-        Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new EntityNotFoundException("Not found: " + btlCode));
+            @PathVariable String regCode) {
+        Participant p = participantRepository.findByRegCode(regCode)
+            .orElseThrow(() -> new EntityNotFoundException("Not found: " + regCode));
         adminAccess.requireProgram(p.getProgramId());
         p.setNeedsAttention(false);
         p.setAttentionReason(null);
@@ -969,6 +977,7 @@ public class AdminController {
                 .sorted(Comparator.comparing(Run::getConferenceDate, Comparator.nullsLast(Comparator.naturalOrder()))
                     .thenComparing(r -> r.getDepartTime() != null ? r.getDepartTime() : ""))
                 .toList();
+        prefetchRuns(runs, true);
         return ResponseEntity.ok(runs.stream().map(this::runDetailWithFlights).toList());
     }
 
@@ -1018,6 +1027,7 @@ public class AdminController {
 
             List<Flight> unassigned = flights.stream()
                 .filter(f -> f.getParticipant() != null && !alreadyAssigned.contains(f.getParticipant().getId()))
+                .filter(f -> f.getParticipant().getWaitlistedAt() == null)  // no pickup until they have a place
                 .filter(f -> f.getSubmittedDatetime() != null)
                 .toList();
 
@@ -1200,8 +1210,8 @@ public class AdminController {
     @PatchMapping("/run-participants/move")
     @Transactional
     public ResponseEntity<AdminDtos.SuccessResponse> moveParticipant(@RequestBody MoveParticipantRequest req) {
-        Participant p = participantRepository.findByBtlCode(req.btlCode())
-            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.btlCode()));
+        Participant p = participantRepository.findByRegCode(req.regCode())
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + req.regCode()));
         adminAccess.requireProgram(p.getProgramId());
         Run from = runRepository.findByRunId(req.fromRunId())
             .orElseThrow(() -> new EntityNotFoundException("Source run not found: " + req.fromRunId()));
@@ -1369,7 +1379,7 @@ public class AdminController {
             if (!pids.isEmpty()) {
                 participantRepository.findAllById(pids).forEach(p ->
                     manifest.append("  - ").append(p.getFullName())
-                            .append(" (").append(p.getBtlCode()).append(")\n"));
+                            .append(" (").append(p.getRegCode()).append(")\n"));
             }
             manifest.append("\n");
         }
@@ -1510,7 +1520,7 @@ public class AdminController {
     private Map<String, Object> participantSummary(Participant p) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", p.getId());
-        m.put("btl_code", p.getBtlCode());
+        m.put("reg_code", p.getRegCode());
         m.put("full_name", p.getFullName());
         m.put("email", p.getEmail());
         m.put("phone_whatsapp", p.getPhone());
@@ -1555,21 +1565,21 @@ public class AdminController {
         m.put("pickup_location", r.getPickupLocation());
         m.put("dropoff_location", r.getDropoffLocation());
 
-        List<RunParticipant> rps = runParticipantRepository.findByIdRunId(r.getId());
+        List<RunParticipant> rps = runParticipants(r);
         List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
         Map<Integer, Boolean> boardedByPid = rps.stream().collect(
             Collectors.toMap(rp -> rp.getId().getParticipantId(),
                              rp -> Boolean.TRUE.equals(rp.getBoarded()), (a, b) -> a));
         List<Map<String, Object>> participants = pids.isEmpty()
             ? List.of()
-            : participantRepository.findAllById(pids).stream()
+            : runPeople(pids).stream()
                 .map(p -> {
                     Map<String, Object> ps = new LinkedHashMap<>(participantSummary(p));
                     ps.put("boarded_in_run", boardedByPid.getOrDefault(p.getId(), false));
                     return ps;
                 }).toList();
         m.put("participants", participants);
-        m.put("boarded_count", r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L);
+        m.put("boarded_count", rps.stream().filter(rp -> Boolean.TRUE.equals(rp.getBoarded())).count());
         m.put("hotel", r.getHotel() != null ? Map.of(
             "hotel_id", r.getHotel().getId(),
             "hotel_name", r.getHotel().getHotelName(),
@@ -1606,7 +1616,7 @@ public class AdminController {
         m.put("pickup_location", r.getPickupLocation());
         m.put("dropoff_location", r.getDropoffLocation());
 
-        List<RunParticipant> rps = runParticipantRepository.findByIdRunId(r.getId());
+        List<RunParticipant> rps = runParticipants(r);
         List<Integer> pids = rps.stream().map(rp -> rp.getId().getParticipantId()).toList();
         if (pids.isEmpty()) {
             m.put("participants", List.of());
@@ -1618,8 +1628,8 @@ public class AdminController {
             Collectors.toMap(rp -> rp.getId().getParticipantId(),
                              rp -> Boolean.TRUE.equals(rp.getBoarded()), (a, b) -> a));
 
-        List<Participant> participants = participantRepository.findAllById(pids);
-        List<Flight> flights = flightRepository.findByParticipantIn(participants);
+        List<Participant> participants = runPeople(pids);
+        List<Flight> flights = runFlights(participants);
 
         Map<Integer, Flight> arrivalByPid = new HashMap<>();
         Map<Integer, Flight> departureByPid = new HashMap<>();
@@ -1634,22 +1644,73 @@ public class AdminController {
             Map<String, Object> ps = new LinkedHashMap<>(participantSummary(p));
             Flight arr = arrivalByPid.get(p.getId());
             Flight dep = departureByPid.get(p.getId());
-            ps.put("flight_arrival", arr != null ? flightSummary(arr, p.getBtlCode()) : null);
-            ps.put("flight_departure", dep != null ? flightSummary(dep, p.getBtlCode()) : null);
+            ps.put("flight_arrival", arr != null ? flightSummary(arr, p.getRegCode()) : null);
+            ps.put("flight_departure", dep != null ? flightSummary(dep, p.getRegCode()) : null);
             ps.put("boarded_in_run", boardedByPid.getOrDefault(p.getId(), false));
             return ps;
         }).toList();
 
         m.put("participants", enrichedParticipants);
-        m.put("boarded_count", r.getId() != null ? runParticipantRepository.countBoardedByRunId(r.getId()) : 0L);
+        m.put("boarded_count", rps.stream().filter(rp -> Boolean.TRUE.equals(rp.getBoarded())).count());
         return m;
     }
 
-    private Map<String, Object> flightSummary(Flight f, String btlCode) {
+    // ── Run passengers: batch-loaded for list views (a few queries in total, not several per run) ──
+
+    private static final String RUN_BATCH = "btl.runBatch";
+    private record RunBatch(Map<Integer, List<RunParticipant>> byRun, Map<Integer, Participant> people, Map<Integer, List<Flight>> flightsByPid) {}
+
+    private RunBatch runBatch() {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        return attrs != null && attrs.getAttribute(RUN_BATCH, 0) instanceof RunBatch b ? b : null;
+    }
+
+    private void prefetchRuns(List<Run> runs, boolean withFlights) {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        List<Integer> ids = runs.stream().map(Run::getId).filter(Objects::nonNull).toList();
+        if (attrs == null || ids.isEmpty()) return;
+        Map<Integer, List<RunParticipant>> byRun = new HashMap<>();
+        for (RunParticipant rp : runParticipantRepository.findByIdRunIdIn(ids)) byRun.computeIfAbsent(rp.getId().getRunId(), k -> new ArrayList<>()).add(rp);
+        Set<Integer> pids = new HashSet<>();
+        byRun.values().forEach(l -> l.forEach(rp -> pids.add(rp.getId().getParticipantId())));
+        Map<Integer, Participant> people = new HashMap<>();
+        for (Participant p : participantRepository.findAllById(pids)) people.put(p.getId(), p);
+        Map<Integer, List<Flight>> flights = null;
+        if (withFlights && !people.isEmpty()) {
+            flights = new HashMap<>();
+            for (Flight f : flightRepository.findByParticipantIn(new ArrayList<>(people.values())))
+                if (f.getParticipant() != null) flights.computeIfAbsent(f.getParticipant().getId(), k -> new ArrayList<>()).add(f);
+        }
+        attrs.setAttribute(RUN_BATCH, new RunBatch(byRun, people, flights), 0);
+    }
+
+    private List<RunParticipant> runParticipants(Run r) {
+        RunBatch b = runBatch();
+        if (b != null && r.getId() != null) return b.byRun().getOrDefault(r.getId(), List.of());
+        return r.getId() == null ? List.of() : runParticipantRepository.findByIdRunId(r.getId());
+    }
+
+    private List<Participant> runPeople(List<Integer> pids) {
+        RunBatch b = runBatch();
+        if (b != null && pids.stream().allMatch(b.people()::containsKey)) return pids.stream().map(b.people()::get).toList();
+        return participantRepository.findAllById(pids);
+    }
+
+    private List<Flight> runFlights(List<Participant> people) {
+        RunBatch b = runBatch();
+        if (b != null && b.flightsByPid() != null) {
+            List<Flight> out = new ArrayList<>();
+            for (Participant p : people) out.addAll(b.flightsByPid().getOrDefault(p.getId(), List.of()));
+            return out;
+        }
+        return flightRepository.findByParticipantIn(people);
+    }
+
+    private Map<String, Object> flightSummary(Flight f, String regCode) {
         if (f == null) return null;
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("flight_id", f.getFlightId());
-        m.put("btl_code", btlCode);
+        m.put("reg_code", regCode);
         m.put("direction", f.getDirection() != null ? f.getDirection().name().toLowerCase() : null);
         m.put("airline", f.getAirline());
         m.put("flight_number", f.getFlightNumber());
@@ -1673,10 +1734,10 @@ public class AdminController {
         );
     }
 
-    private AdminDtos.FlightAdminDto toFlightDto(Flight f, String btlCode) {
+    private AdminDtos.FlightAdminDto toFlightDto(Flight f, String regCode) {
         if (f == null) return null;
         return new AdminDtos.FlightAdminDto(
-            f.getFlightId(), btlCode,
+            f.getFlightId(), regCode,
             f.getDirection() != null ? f.getDirection().name().toLowerCase() : null,
             f.getAirline(), f.getFlightNumber(),
             f.getSubmittedDatetime() != null ? f.getSubmittedDatetime().toString() : null,
@@ -1686,6 +1747,26 @@ public class AdminController {
             f.getAirportCode(), Boolean.TRUE.equals(f.getPollingActive()),
             f.getLeg4PickupFrom() != null ? f.getLeg4PickupFrom().name().toLowerCase() : null
         );
+    }
+
+    /** Payment totals for list views, loaded in one query and kept for the request. */
+    private static final String PAID_TOTALS = "btl.paidTotals";
+
+    @SuppressWarnings("unchecked")
+    private java.math.BigDecimal paidTotal(Participant p) {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs != null && attrs.getAttribute(PAID_TOTALS, 0) instanceof Map<?, ?> m)
+            return ((Map<Integer, java.math.BigDecimal>) m).getOrDefault(p.getId(), java.math.BigDecimal.ZERO);
+        return participantPaymentRepository.totalForParticipant(p.getId());
+    }
+
+    private void prefetchPaidTotals(Collection<Participant> people) {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs == null || people.isEmpty()) return;
+        Map<Integer, java.math.BigDecimal> totals = new HashMap<>();
+        for (Object[] row : participantPaymentRepository.totalsFor(people.stream().map(Participant::getId).toList()))
+            totals.put((Integer) row[0], (java.math.BigDecimal) row[1]);
+        attrs.setAttribute(PAID_TOTALS, totals, 0);
     }
 
     /** Whether the caller may see payment amounts for this program (cached for the request). */
@@ -1707,21 +1788,22 @@ public class AdminController {
     private AdminDtos.ParticipantAdminResponse toParticipantAdminResponse(
             Participant p, Flight arrival, Flight departure, boolean boardedArrival, boolean boardedDeparture) {
         return new AdminDtos.ParticipantAdminResponse(
-            p.getBtlCode(), p.getFullName(), p.getFirstName(), p.getLastName(), p.getGender(),
+            p.getRegCode(), p.getFullName(), p.getFirstName(), p.getLastName(), p.getGender(),
             p.getPhone(), p.getEmail(), p.getState(),
             toHotelDto(p.getHotel()),
             Boolean.TRUE.equals(p.getShuttleOptIn()),
             p.getStatus() != null ? p.getStatus().name().toLowerCase() : null,
             Boolean.TRUE.equals(p.getNeedsAttention()), p.getAttentionReason(),
             p.getCreatedAt() != null ? p.getCreatedAt().toString() : null,
-            toFlightDto(arrival, p.getBtlCode()),
-            toFlightDto(departure, p.getBtlCode()),
+            toFlightDto(arrival, p.getRegCode()),
+            toFlightDto(departure, p.getRegCode()),
             boardedArrival,
             boardedDeparture,
             p.getBreakoutGroup(),
             registrationFieldService.parseAnswers(p.getCustomAnswers()),
             com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus()),
-            amountsVisible(p.getProgramId()) ? participantPaymentRepository.totalForParticipant(p.getId()) : null
+            amountsVisible(p.getProgramId()) ? paidTotal(p) : null,
+            p.getWaitlistedAt() != null ? p.getWaitlistedAt().toString() : null
         );
     }
 
@@ -2693,11 +2775,20 @@ public class AdminController {
         return ResponseEntity.ok(programs.stream().map(this::toProgramDto).toList());
     }
 
+    static final int MAX_PROGRAMS_PER_DAY = 5;
+
     @Operation(summary = "Create program", description = "Creates a new transport program, seeds associated hotels, and provisions a default notification config")
     @PostMapping("/programs")
     @Transactional
     public ResponseEntity<AdminDtos.ProgramResponse> createProgram(
             @RequestBody AdminDtos.CreateProgramRequest req) {
+        // Anti-spam: a signed-up account can create a limited number of programs a day
+        // (sign-up already requires a verified email, and the network limit is 20/hour).
+        Integer uid = adminAccess.currentUserId();
+        if (uid != null && programRepository.countByCreatedByAdminIdAndCreatedAtAfter(uid, OffsetDateTime.now().minusDays(1)) >= MAX_PROGRAMS_PER_DAY) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                "You've created " + MAX_PROGRAMS_PER_DAY + " programs today — please try again tomorrow");
+        }
         // Never let a create overwrite an existing program (JPA save() on an existing id is an update).
         if (req.id() != null && programRepository.existsById(req.id())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Program id '" + req.id() + "' is already in use");
@@ -2715,6 +2806,7 @@ public class AdminController {
         Map<String, Object> rules = parseRules(rulesJson);
         Program p = Program.builder()
             .id(req.id() != null ? req.id() : "p_" + System.currentTimeMillis())
+            .createdAt(OffsetDateTime.now())
             .name(req.name())
             .ini(ini)
             .type(req.type() != null ? req.type() : "Conference")
@@ -2800,9 +2892,14 @@ public class AdminController {
         if (req.airportPickupsEnabled() != null) p.setAirportPickupsEnabled(req.airportPickupsEnabled());
         if (req.lodgingType()           != null) p.setLodgingType(Program.normalizeLodgingType(req.lodgingType()));
         if (req.venueDepartureRule()    != null) p.setVenueDepartureRule(req.venueDepartureRule());
+        boolean feeChanged = false;
         if (req.registrationFee()       != null) {
             if (req.registrationFee().signum() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Fee can't be negative");
-            p.setRegistrationFee(req.registrationFee().signum() == 0 ? null : req.registrationFee());
+            java.math.BigDecimal next = req.registrationFee().signum() == 0 ? null : req.registrationFee();
+            feeChanged = !java.util.Objects.equals(
+                p.getRegistrationFee() == null ? null : p.getRegistrationFee().stripTrailingZeros(),
+                next == null ? null : next.stripTrailingZeros());
+            p.setRegistrationFee(next);
         }
         if (req.feeCurrency()           != null && req.feeCurrency().trim().matches("[A-Za-z]{3}")) {
             p.setFeeCurrency(req.feeCurrency().trim().toUpperCase());
@@ -2856,6 +2953,12 @@ public class AdminController {
         if (req.breakoutNumGroups() != null) p.setBreakoutNumGroups(req.breakoutNumGroups());
         p.setUpdatedAt(OffsetDateTime.now());
         programRepository.save(p);
+        // A new fee changes who is paid in full: re-check everyone who has paid something.
+        if (feeChanged && paymentService != null) {
+            programRepository.flush();
+            int changed = paymentService.recalculateForProgram(p.getId());
+            if (changed > 0) Audit.detail("Fee changed · " + changed + " payment status" + (changed == 1 ? "" : "es") + " updated");
+        }
         return ResponseEntity.ok(toProgramDto(p));
     }
 
@@ -2952,7 +3055,7 @@ public class AdminController {
         String ini = prog != null ? prog.getIni() : null;
         int numGroups = prog != null && prog.getBreakoutNumGroups() != null ? prog.getBreakoutNumGroups() : 0;
         Participant p = Participant.builder()
-            .btlCode(btlCodeService.generateNextCode(programId, ini))
+            .regCode(regCodeService.generateNextCode(programId, ini))
             .fullName(name != null && !name.isEmpty() ? name : "Unknown")
             .email(email)
             .phone(phone)

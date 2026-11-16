@@ -30,7 +30,7 @@ public final class AdminDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record FlightAdminDto(
         @JsonProperty("flight_id")          String flightId,
-        @JsonProperty("btl_code")           String btlCode,
+        @JsonProperty("reg_code")           String regCode,
         String direction,
         String airline,
         @JsonProperty("flight_number")      String flightNumber,
@@ -45,7 +45,7 @@ public final class AdminDtos {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record ParticipantAdminResponse(
-        @JsonProperty("btl_code")          String btlCode,
+        @JsonProperty("reg_code")          String regCode,
         @JsonProperty("full_name")         String fullName,
         @JsonProperty("first_name")        String firstName,
         @JsonProperty("last_name")         String lastName,
@@ -66,10 +66,12 @@ public final class AdminDtos {
         @JsonProperty("breakout_group")    Integer breakoutGroup,
         @JsonProperty("custom_answers")    java.util.Map<String, Object> customAnswers,
         @JsonProperty("payment_status")    String paymentStatus,
-        @JsonProperty("amount_paid")       java.math.BigDecimal amountPaid
+        @JsonProperty("amount_paid")       java.math.BigDecimal amountPaid,
+        /** On the waitlist since (null = has a place). */
+        @JsonProperty("waitlisted_at")     String waitlistedAt
     ) {
-        /** Neutral alias for btl_code (the registration code). */
-        @JsonProperty("code") public String code() { return btlCode; }
+        /** Neutral alias for reg_code (the registration code). */
+        @JsonProperty("code") public String code() { return regCode; }
     }
 
     record VehicleAdminDto(

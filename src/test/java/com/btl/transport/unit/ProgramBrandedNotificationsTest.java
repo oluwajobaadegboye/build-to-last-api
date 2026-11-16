@@ -62,7 +62,7 @@ class ProgramBrandedNotificationsTest {
     }
 
     private Participant participant(String programId, String name) {
-        return Participant.builder().programId(programId).fullName(name).email("a@example.com").btlCode("PYC-001").build();
+        return Participant.builder().programId(programId).fullName(name).email("a@example.com").regCode("PYC-001").build();
     }
 
     private record Sent(String sender, String subject, String html, String plain) {}

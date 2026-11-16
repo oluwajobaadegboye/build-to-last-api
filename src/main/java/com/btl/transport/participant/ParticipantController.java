@@ -74,6 +74,8 @@ public class ParticipantController {
     private final AccommodationContactRepository accommodationContactRepository;
     private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
     private final com.btl.transport.registration.RegistrationSectionRepository registrationSectionRepository;
+    private final com.btl.transport.room.ChaperoneService chaperoneService;
+    private final com.btl.transport.admin.AuditLogRepository auditLogRepository;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -147,8 +149,10 @@ public class ParticipantController {
         resp.put("registration_open", program.getRegistrationOpen() != null ? program.getRegistrationOpen() : true);
         // open | paused | closed (past its closing time) | full (capacity reached)
         String regState = com.btl.transport.program.RegistrationRules.state(
-            program, participantRepository.countByProgramId(program.getId()), OffsetDateTime.now());
+            program, participantRepository.countByProgramIdAndWaitlistedAtIsNull(program.getId()), OffsetDateTime.now());
         resp.put("registration_state", regState);
+        // Full, but new sign-ups can join the waitlist.
+        resp.put("waitlist_open", com.btl.transport.program.RegistrationRules.FULL.equals(regState) && Boolean.TRUE.equals(program.getWaitlistEnabled()));
         resp.put("registration_closes_at", program.getRegistrationClosesAt());
         resp.put("reg_title",       program.getRegTitle());
         resp.put("reg_description", program.getRegDescription());
@@ -157,6 +161,16 @@ public class ParticipantController {
         resp.put("questions_title", program.getQuestionsTitle());
         resp.put("ask_gender",      !Boolean.FALSE.equals(program.getAskGender()));
         resp.put("ask_phone",       !Boolean.FALSE.equals(program.getAskPhone()));
+        // The fee for the registration page: only when the program shows it and has a fee; else null.
+        Map<String, Object> landingFee = null;
+        if (Boolean.TRUE.equals(program.getShowFeeOnLanding())
+                && program.getRegistrationFee() != null && program.getRegistrationFee().signum() > 0) {
+            landingFee = new java.util.LinkedHashMap<>();
+            landingFee.put("amount", program.getRegistrationFee());
+            landingFee.put("currency", program.getFeeCurrency() != null ? program.getFeeCurrency() : "USD");
+            landingFee.put("label", program.getFeeLabel() != null && !program.getFeeLabel().isBlank() ? program.getFeeLabel() : "Registration fee");
+        }
+        resp.put("landing_fee", landingFee);
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
     }
@@ -272,7 +286,10 @@ public class ParticipantController {
                 req.programId(), req.state(), answersJson
             );
             souvenirService.saveChoices(p, souvenirChoices);
-            return ResponseEntity.ok(new RegisterResponse(true, p.getBtlCode(), "Registration successful"));
+            if (p.getWaitlistedAt() != null) {
+                return ResponseEntity.ok(Map.of("success", true, "reg_code", p.getRegCode(), "message", "Added to the waitlist", "waitlisted", true));
+            }
+            return ResponseEntity.ok(new RegisterResponse(true, p.getRegCode(), "Registration successful"));
         } catch (AlreadyRegisteredException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("error", "already_registered", "message", e.getMessage()));
@@ -287,9 +304,9 @@ public class ParticipantController {
     @PostMapping("/update-flight")
     public ResponseEntity<UpdateFlightResponse> updateFlight(@RequestBody UpdateFlightRequest req) {
         participantService.updateFlight(
-            req.btlCode(), req.direction(), req.airline(), req.flightNumber(), req.submittedDatetime()
+            req.regCode(), req.direction(), req.airline(), req.flightNumber(), req.submittedDatetime()
         );
-        return ResponseEntity.ok(new UpdateFlightResponse(true, req.btlCode(), "Flight updated successfully"));
+        return ResponseEntity.ok(new UpdateFlightResponse(true, req.regCode(), "Flight updated successfully"));
     }
 
     /** The program may hide breakout groups from attendees (they stay visible to admins). */
@@ -304,8 +321,9 @@ public class ParticipantController {
     @Operation(summary = "Get participant status", description = "Returns full transport status for a participant — hotel, flights, assigned runs — identified by their registration code")
     @GetMapping("/participant-status")
     @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
-        Participant p = participantRepository.findByBtlCodeWithHotel(code)
+        Participant p = participantRepository.findByRegCodeWithHotel(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
 
         List<Flight> flights = flightRepository.findByParticipant(p);
@@ -323,7 +341,7 @@ public class ParticipantController {
             .findBoardedDepartureParticipantIds(List.of(p.getId()), p.getProgramId()).isEmpty();
 
         ParticipantDto participantDto = new ParticipantDto(
-            p.getBtlCode(),
+            p.getRegCode(),
             p.getFullName(),
             p.getPhone(),
             p.getEmail(),
@@ -368,6 +386,7 @@ public class ParticipantController {
 
         RoomDto roomDto = buildRoomDto(p, programInfo);
 
+        Object[] chaperoneView = chaperoneService.attendeeView(p);
         return ResponseEntity.ok(new ParticipantStatusResponse(
             participantDto,
             toFlightDto(arrival, arrivalPickupTime),
@@ -379,8 +398,90 @@ public class ParticipantController {
             souvenirService.attendeeView(p),
             programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
                 .filter(prog -> Boolean.TRUE.equals(prog.getShowPaymentToAttendees()))
-                .map(prog -> paymentService.attendeeSummary(p)).orElse(null)
+                .map(prog -> paymentService.attendeeSummary(p)).orElse(null),
+            (List<Map<String, Object>>) chaperoneView[0],
+            (List<Map<String, Object>>) chaperoneView[1],
+            p.getWaitlistedAt() != null,
+            programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
+                .filter(prog -> Boolean.TRUE.equals(prog.getAttendeeSelfEdit()))
+                .map(prog -> {
+                    Map<String, Object> d = new java.util.LinkedHashMap<>();
+                    d.put("first_name", p.getFirstName());
+                    d.put("last_name", p.getLastName());
+                    d.put("phone", p.getPhone());
+                    d.put("ask_phone", !Boolean.FALSE.equals(prog.getAskPhone()));
+                    d.put("custom_answers", registrationFieldService.parseAnswers(p.getCustomAnswers()));
+                    return d;
+                }).orElse(null)
         ));
+    }
+
+    // ── PATCH /api/v1/my-details ──────────────────────────────────────────
+    public record MyDetailsRequest(
+        String code,
+        @com.fasterxml.jackson.annotation.JsonProperty("first_name") String firstName,
+        @com.fasterxml.jackson.annotation.JsonProperty("last_name") String lastName,
+        String phone,
+        @com.fasterxml.jackson.annotation.JsonProperty("custom_answers") Map<String, Object> customAnswers
+    ) {}
+
+    /**
+     * An attendee corrects their own details, when the program allows it. Only name, phone and answers to the
+     * program's questions: email (how they're found and emailed) and gender (rooms) stay with the admins.
+     * Each change is written to the activity log so admins can see what changed.
+     */
+    @Operation(summary = "Update my details", description = "Attendee self-edit (program setting): first/last name, phone and question answers")
+    @PatchMapping("/my-details")
+    @Transactional
+    public ResponseEntity<?> updateMyDetails(@RequestBody MyDetailsRequest req) {
+        if (req.code() == null || req.code().isBlank()) return ResponseEntity.badRequest().body(Map.of("error", "Missing code"));
+        Participant p = participantRepository.findByRegCode(req.code().trim()).orElse(null);
+        if (p == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Registration not found"));
+        Program prog = p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+        if (prog == null || !Boolean.TRUE.equals(prog.getAttendeeSelfEdit())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This program doesn't allow changes here — contact the organisers"));
+        }
+        Map<String, String> errors = new java.util.LinkedHashMap<>();
+        List<String> changed = new java.util.ArrayList<>();
+        String first = req.firstName() != null ? PersonName.clean(req.firstName()) : p.getFirstName();
+        String last  = req.lastName()  != null ? PersonName.clean(req.lastName())  : p.getLastName();
+        if (req.firstName() != null && first == null) errors.put("first_name", "First name is required");
+        if (req.lastName()  != null && last  == null) errors.put("last_name", "Last name is required");
+        String phone = null;
+        boolean askPhone = !Boolean.FALSE.equals(prog.getAskPhone());
+        if (req.phone() != null && askPhone) {
+            phone = req.phone().trim();
+            if (phone.replaceAll("\\D", "").length() < 7) errors.put("phone", "Enter a phone number with country code");
+        }
+        Map<String, Object> answers = null;
+        if (req.customAnswers() != null) {
+            Map<String, Object> merged = new java.util.LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));
+            merged.putAll(req.customAnswers());
+            try { answers = registrationFieldService.validate(p.getProgramId(), merged, false); }
+            catch (com.btl.transport.registration.RegistrationFieldService.InvalidAnswersException e) { errors.putAll(e.getErrors()); }
+        }
+        if (!errors.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "invalid_answers", "message", "Please check your details", "fields", errors));
+
+        if ((req.firstName() != null || req.lastName() != null)
+            && !(java.util.Objects.equals(first, p.getFirstName()) && java.util.Objects.equals(last, p.getLastName()))) {
+            changed.add("name: " + p.getFullName() + " → " + PersonName.join(first, last));
+            p.setFirstName(first); p.setLastName(last); p.setFullName(PersonName.join(first, last));
+        }
+        if (phone != null && !phone.equals(p.getPhone())) { changed.add("phone"); p.setPhone(phone); }
+        if (answers != null) {
+            String json = registrationFieldService.toJson(answers);
+            if (!java.util.Objects.equals(json, p.getCustomAnswers())) { changed.add("answers"); p.setCustomAnswers(json); }
+        }
+        if (!changed.isEmpty()) {
+            p.setUpdatedAt(OffsetDateTime.now());
+            participantRepository.save(p);
+            auditLogRepository.save(com.btl.transport.admin.AuditLog.builder()
+                .programId(p.getProgramId()).username("attendee").action("Updated their own details")
+                .category("participants").target(p.getRegCode()).targetName(p.getFullName())
+                .method("PATCH").path("/api/v1/my-details")
+                .detail(String.join(" · ", changed)).build());
+        }
+        return ResponseEntity.ok(Map.of("updated", !changed.isEmpty()));
     }
 
     // ── POST /api/v1/send-notification ────────────────────────────────────
@@ -395,14 +496,14 @@ public class ParticipantController {
         Boolean boarded
     ) {}
 
-    // ── PATCH /api/v1/participant/{btlCode}/board-run ──────────────────────
+    // ── PATCH /api/v1/participant/{regCode}/board-run ──────────────────────
     @Operation(summary = "Self-report boarding", description = "Participant marks themselves as boarded on their active run, identified by registration code")
-    @PatchMapping("/participant/{btlCode}/board-run")
+    @PatchMapping("/participant/{regCode}/board-run")
     public ResponseEntity<Map<String, Boolean>> selfBoard(
-            @PathVariable String btlCode,
+            @PathVariable String regCode,
             @RequestBody SelfBoardRequest req) {
-        Participant p = participantRepository.findByBtlCode(btlCode)
-            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + btlCode));
+        Participant p = participantRepository.findByRegCode(regCode)
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + regCode));
         Run run = runRepository.findByRunId(req.runId())
             .orElseThrow(() -> new EntityNotFoundException("Run not found: " + req.runId()));
         List<Integer> runIds = runParticipantRepository.findByIdParticipantId(p.getId())
@@ -424,7 +525,7 @@ public class ParticipantController {
 
         if (fromPhone != null) {
             participantRepository.findByPhone(fromPhone).ifPresent(p ->
-                log.info("Inbound SMS from {} ({}): {}", p.getBtlCode(), fromPhone, messageBody)
+                log.info("Inbound SMS from {} ({}): {}", p.getRegCode(), fromPhone, messageBody)
             );
         }
 

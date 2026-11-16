@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class BtlCodeService {
+public class RegCodeService {
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -15,13 +15,13 @@ public class BtlCodeService {
         String pattern = "^" + prefix + "-[0-9]+$";
         int offset = prefix.length() + 2;  // skip "PREFIX-"
         Long programMax = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM ?) AS INTEGER)), 0)" +
-            " FROM participants WHERE btl_code ~ ? AND program_id = ?",
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(reg_code FROM ?) AS INTEGER)), 0)" +
+            " FROM participants WHERE reg_code ~ ? AND program_id = ?",
             Long.class, offset, pattern, programId
         );
         Long globalMax = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(MAX(CAST(SUBSTRING(btl_code FROM ?) AS INTEGER)), 0)" +
-            " FROM participants WHERE btl_code ~ ?",
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(reg_code FROM ?) AS INTEGER)), 0)" +
+            " FROM participants WHERE reg_code ~ ?",
             Long.class, offset, pattern
         );
         return String.format("%s-%03d", prefix, Math.max(programMax, globalMax) + 1);
