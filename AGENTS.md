@@ -114,5 +114,5 @@ The application is live with real participants. The following backend files are 
 
 - Never commit or push without being explicitly asked.
 - Never add `Co-Authored-By: Claude` to commit messages.
-- Never commit `infra/vpc_endpoints.tf` (local changes) or `AGENTS.md` (local copy of these rules for Codex).
+- Never commit `infra/vpc_endpoints.tf` (local changes). `AGENTS.md` holds the same rules as this file for other coding tools — keep the two in step.
 - When a change spans both repos, commit, push and deploy the API first, then the frontend.
