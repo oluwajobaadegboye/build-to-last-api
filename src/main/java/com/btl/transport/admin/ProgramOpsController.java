@@ -46,6 +46,8 @@ public class ProgramOpsController {
     private final com.btl.transport.payment.ParticipantPaymentRepository paymentRepository;
     private final com.btl.transport.notification.NotificationService notificationService;
     private final com.btl.transport.participant.ParticipantService participantService;
+    private final com.btl.transport.program.ProgramPaymentQrRepository qrRepository;
+    private final com.btl.transport.registration.RegistrationFieldService registrationFieldService;
 
     private Program program(String id) {
         Program p = programRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Not found"));
@@ -79,7 +81,16 @@ public class ProgramOpsController {
         @JsonProperty("payment_reminders_enabled") Boolean paymentRemindersEnabled,
         /** 0 = no automatic reminder */
         @JsonProperty("auto_reminder_days") Integer autoReminderDays,
-        @JsonProperty("attendee_self_edit") Boolean attendeeSelfEdit
+        @JsonProperty("attendee_self_edit") Boolean attendeeSelfEdit,
+        /** How to pay (Zelle details etc.); "" clears */
+        @JsonProperty("payment_instructions") String paymentInstructions,
+        /** Fee by answer: the question key ("" = off) and {option: amount} (blank amount = normal fee) */
+        @JsonProperty("fee_question_key") String feeQuestionKey,
+        @JsonProperty("fee_by_option") Map<String, Object> feeByOption,
+        /** always | checkin | date | checkin_or_date */
+        @JsonProperty("room_visibility") String roomVisibility,
+        /** "YYYY-MM-DDTHH:mm" in program time; "" clears */
+        @JsonProperty("room_visible_from") String roomVisibleFrom
     ) {}
 
     private Map<String, Object> policies(Program p) {
@@ -102,6 +113,12 @@ public class ProgramOpsController {
         m.put("auto_reminder_sent_at", p.getAutoReminderSentAt() != null ? p.getAutoReminderSentAt().toString() : null);
         m.put("start_date", p.getStartDate());
         m.put("attendee_self_edit", Boolean.TRUE.equals(p.getAttendeeSelfEdit()));
+        m.put("payment_instructions", p.getPaymentInstructions());
+        m.put("has_payment_qr", qrRepository.existsById(p.getId()));
+        m.put("fee_question_key", com.btl.transport.program.FeeRules.byAnswer(p) ? p.getFeeQuestionKey() : null);
+        m.put("fee_by_option", com.btl.transport.program.FeeRules.optionFees(p));
+        m.put("room_visibility", com.btl.transport.program.RoomVisibility.mode(p));
+        m.put("room_visible_from", p.getRoomVisibleFrom());
         m.put("registered", registered);
         m.put("registration_state", RegistrationRules.state(p, registered, OffsetDateTime.now()));
         m.put("timezone", p.getTimezone());
@@ -156,7 +173,135 @@ public class ProgramOpsController {
             p.setAutoReminderDays(next);
         }
         if (req.attendeeSelfEdit() != null) p.setAttendeeSelfEdit(req.attendeeSelfEdit());
-        return policies(programRepository.save(p));
+        if (req.paymentInstructions() != null) {
+            String t = req.paymentInstructions().trim();
+            if (t.length() > 2000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Keep payment instructions under 2000 characters");
+            p.setPaymentInstructions(t.isEmpty() ? null : t);
+        }
+        boolean feesChanged = false;
+        if (req.feeQuestionKey() != null || req.feeByOption() != null) {
+            String before = p.getFeeQuestionKey() + "|" + p.getFeeByOption();
+            String key = req.feeQuestionKey() != null ? req.feeQuestionKey().trim() : p.getFeeQuestionKey();
+            if (key == null || key.isEmpty()) {
+                p.setFeeQuestionKey(null);
+                p.setFeeByOption(null);
+            } else {
+                var field = registrationFieldService.activeField(p.getId(), key);
+                if (field == null || !List.of("select", "radio").contains(field.getType()))
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick a dropdown or single-choice question");
+                List<String> options = registrationFieldService.options(field);
+                Map<String, BigDecimal> amounts = new LinkedHashMap<>();
+                Map<String, Object> given = req.feeByOption() != null ? req.feeByOption()
+                    : new LinkedHashMap<>(com.btl.transport.program.FeeRules.optionFees(p));
+                for (var e : given.entrySet()) {
+                    if (e.getValue() == null || String.valueOf(e.getValue()).isBlank()) continue;
+                    if (!options.contains(e.getKey()))
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "\"" + e.getKey() + "\" isn't an option of that question");
+                    BigDecimal v;
+                    try { v = new BigDecimal(String.valueOf(e.getValue()).trim()).setScale(2, java.math.RoundingMode.HALF_UP); }
+                    catch (NumberFormatException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter amounts as numbers, e.g. 280"); }
+                    if (v.signum() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Fees can't be negative");
+                    amounts.put(e.getKey(), v);
+                }
+                p.setFeeQuestionKey(key);
+                p.setFeeByOption(com.btl.transport.program.FeeRules.toJson(amounts));
+            }
+            feesChanged = !before.equals(p.getFeeQuestionKey() + "|" + p.getFeeByOption());
+        }
+        if (req.roomVisibility() != null) {
+            String m = req.roomVisibility().trim();
+            if (!com.btl.transport.program.RoomVisibility.MODES.contains(m))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose always, checkin, date or checkin_or_date");
+            p.setRoomVisibility(m.equals(com.btl.transport.program.RoomVisibility.ALWAYS) ? null : m);
+        }
+        if (req.roomVisibleFrom() != null) {
+            String v = req.roomVisibleFrom().trim();
+            if (v.isEmpty()) p.setRoomVisibleFrom(null);
+            else {
+                try { LocalDateTime.parse(v); } catch (Exception e) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Date and time must look like 2027-07-02T15:00");
+                }
+                p.setRoomVisibleFrom(v.length() > 16 ? v.substring(0, 16) : v);
+            }
+        }
+        Program saved = programRepository.save(p);
+        if (feesChanged) {
+            programRepository.flush();
+            int changed = paymentService.recalculateForProgram(saved.getId());
+            if (changed > 0) Audit.detail("Fees changed · " + changed + " payment status" + (changed == 1 ? "" : "es") + " updated");
+        }
+        return policies(saved);
+    }
+
+    // ── Attendee lookup (help desk) ───────────────────────────────────────
+
+    @Operation(summary = "Find an attendee", description = "Search by name, code, email or phone (any admin of the program); up to 25 matches")
+    @GetMapping("/lookup")
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> lookup(@RequestHeader(value = "X-Program-Id", required = false) String programId,
+                                            @RequestParam(value = "q", defaultValue = "") String q) {
+        Program prog = current(programId);
+        String needle = q.trim().toLowerCase(Locale.ROOT);
+        String digits = q.replaceAll("\\D", "");
+        if (needle.length() < 2) return List.of();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Participant p : participantRepository.findAllByProgramIdWithHotel(prog.getId())) {
+            boolean hit = (p.getFullName() != null && p.getFullName().toLowerCase(Locale.ROOT).contains(needle))
+                || (p.getRegCode() != null && p.getRegCode().toLowerCase(Locale.ROOT).contains(needle))
+                || (p.getEmail() != null && p.getEmail().toLowerCase(Locale.ROOT).contains(needle))
+                || (digits.length() >= 4 && p.getPhone() != null && p.getPhone().replaceAll("\\D", "").contains(digits));
+            if (!hit) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("reg_code", p.getRegCode());
+            m.put("full_name", p.getFullName());
+            m.put("email", p.getEmail());
+            m.put("phone", p.getPhone());
+            m.put("checked_in", p.getCheckedInAt() != null);
+            m.put("waitlisted", p.getWaitlistedAt() != null);
+            out.add(m);
+        }
+        // Best matches first: names that start with the search, then the rest alphabetically.
+        out.sort(Comparator.<Map<String, Object>, Boolean>comparing(m -> !String.valueOf(m.get("full_name")).toLowerCase(Locale.ROOT).startsWith(needle))
+            .thenComparing(m -> String.valueOf(m.get("full_name")).toLowerCase(Locale.ROOT)));
+        return out.size() > 25 ? out.subList(0, 25) : out;
+    }
+
+    // ── Room visibility (Accommodation admins) ─────────────────────────────
+
+    public record RoomVisibilityRequest(@JsonProperty("room_visibility") String roomVisibility,
+                                        @JsonProperty("room_visible_from") String roomVisibleFrom) {}
+
+    @Operation(summary = "When attendees see their room", description = "always | checkin | date | checkin_or_date, with a date/time in program time")
+    @PatchMapping("/programs/{id}/room-visibility")
+    @Transactional
+    public Map<String, Object> updateRoomVisibility(@PathVariable String id, @RequestBody RoomVisibilityRequest req) {
+        return updatePolicies(id, new PoliciesRequest(null, null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, req.roomVisibility(), req.roomVisibleFrom()));
+    }
+
+    // ── Payment QR code ────────────────────────────────────────────────────
+
+    @Operation(summary = "Upload the payment QR code", description = "PNG or JPEG up to 2 MB; shown after registering, in emails and on the attendee page")
+    @PostMapping(value = "/programs/{id}/payment-qr", consumes = "multipart/form-data")
+    @Transactional
+    public Map<String, Object> uploadPaymentQr(@PathVariable String id, @RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws java.io.IOException {
+        Program p = program(id);
+        String type = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
+        if (!type.equals("image/png") && !type.equals("image/jpeg"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload a PNG or JPEG image");
+        if (file.getSize() > 2_000_000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Keep the image under 2 MB");
+        qrRepository.save(com.btl.transport.program.ProgramPaymentQr.builder()
+            .programId(p.getId()).contentType(type).data(file.getBytes()).updatedAt(OffsetDateTime.now()).build());
+        return policies(p);
+    }
+
+    @Operation(summary = "Remove the payment QR code")
+    @DeleteMapping("/programs/{id}/payment-qr")
+    @Transactional
+    public Map<String, Object> deletePaymentQr(@PathVariable String id) {
+        Program p = program(id);
+        if (qrRepository.existsById(p.getId())) qrRepository.deleteById(p.getId());
+        return policies(p);
     }
 
     // ── Payments ledger export ─────────────────────────────────────────────
@@ -254,18 +399,22 @@ public class ProgramOpsController {
                 Map<Integer, BigDecimal> totals = paymentService.totals(people.stream().map(Participant::getId).toList());
                 BigDecimal collected = totals.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal fee = prog.getRegistrationFee();
-                BigDecimal outstanding = null;
-                if (fee != null) {
+                BigDecimal outstanding = null, expected = null;
+                if (com.btl.transport.program.FeeRules.hasAnyFee(prog)) {
                     outstanding = BigDecimal.ZERO;
+                    expected = BigDecimal.ZERO;
                     for (Participant p : placed) {
+                        BigDecimal mine = com.btl.transport.program.FeeRules.feeFor(prog, p);  // by their answer when fees differ
+                        if (mine == null) continue;
+                        expected = expected.add(mine);
                         if (PaymentService.PAID.equals(PaymentService.normalizeStatus(p.getPaymentStatus()))) continue;
-                        outstanding = outstanding.add(fee.subtract(totals.getOrDefault(p.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO));
+                        outstanding = outstanding.add(mine.subtract(totals.getOrDefault(p.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO));
                     }
                 }
                 pay.put("fee", fee);
                 pay.put("collected", collected);
                 pay.put("outstanding", outstanding);
-                pay.put("expected", fee != null ? fee.multiply(BigDecimal.valueOf(registered)) : null);
+                pay.put("expected", expected);
             }
             out.put("payments", pay);
         }

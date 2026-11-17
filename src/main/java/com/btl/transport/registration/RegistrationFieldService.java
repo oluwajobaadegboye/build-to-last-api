@@ -119,6 +119,13 @@ public class RegistrationFieldService {
             .stream().map(this::toDto).toList();
     }
 
+    /** The active question with this key, or null. */
+    public RegistrationField activeField(String programId, String key) {
+        if (programId == null || key == null) return null;
+        return repository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId).stream()
+            .filter(f -> f.getFieldKey().equals(key)).findFirst().orElse(null);
+    }
+
     public boolean isActiveKey(String programId, String key) {
         return programId != null && repository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(programId)
             .stream().anyMatch(f -> f.getFieldKey().equals(key));

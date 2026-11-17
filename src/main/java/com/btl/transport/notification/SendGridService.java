@@ -65,6 +65,37 @@ public class SendGridService {
         }
     }
 
+    /** An image shown inside the email body via "cid:{contentId}" (works without any public link). */
+    public record InlineImage(String contentId, String contentType, byte[] data) {}
+
+    /** Like {@link #sendHtmlEmailAs} with inline images attached. */
+    public void sendHtmlEmailAs(String senderName, String toEmail, String toName, String subject,
+                                String htmlBody, String plainBody, java.util.List<InlineImage> images) {
+        if (images == null || images.isEmpty()) { sendHtmlEmailAs(senderName, toEmail, toName, subject, htmlBody, plainBody); return; }
+        try {
+            Mail mail = new Mail();
+            mail.setFrom(new Email(fromEmail, sender(senderName)));
+            mail.setSubject(subject);
+            Personalization personalization = new Personalization();
+            personalization.addTo(new Email(toEmail, toName));
+            mail.addPersonalization(personalization);
+            mail.addContent(new Content("text/plain", plainBody));
+            mail.addContent(new Content("text/html", htmlBody));
+            for (InlineImage img : images) {
+                com.sendgrid.helpers.mail.objects.Attachments a = new com.sendgrid.helpers.mail.objects.Attachments();
+                a.setContent(java.util.Base64.getEncoder().encodeToString(img.data()));
+                a.setType(img.contentType());
+                a.setFilename(img.contentId() + (img.contentType().contains("png") ? ".png" : ".jpg"));
+                a.setDisposition("inline");
+                a.setContentId(img.contentId());
+                mail.addAttachments(a);
+            }
+            send(mail, toEmail, subject);
+        } catch (Exception e) {
+            log.error("SendGrid send failed — to={} subject={}", toEmail, subject, e);
+        }
+    }
+
     private String sender(String senderName) {
         return senderName != null && !senderName.isBlank() ? senderName.trim() : fromName;
     }

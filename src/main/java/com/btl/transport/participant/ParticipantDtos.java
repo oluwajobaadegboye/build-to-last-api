@@ -171,6 +171,10 @@ public final class ParticipantDtos {
         /** True while this person is on the waitlist (no place yet). */
         @JsonProperty("waitlisted") boolean waitlisted,
         /** Their editable details (name, phone, answers) when the program lets attendees edit them; null otherwise. */
-        @JsonProperty("my_details") Map<String, Object> myDetails
+        @JsonProperty("my_details") Map<String, Object> myDetails,
+        /** Null when they can see their room; else {reason: checkin|date|checkin_or_date, from} */
+        @JsonProperty("room_locked") Map<String, Object> roomLocked,
+        /** How to pay: {instructions, has_qr, fee, currency}; null when there's nothing to show */
+        @JsonProperty("payment_info") Map<String, Object> paymentInfo
     ) {}
 }

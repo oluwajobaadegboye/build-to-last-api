@@ -95,7 +95,7 @@ public final class AdminPermissions {
         new Rule("*", Pattern.compile(P + "/room-assignments(/.*)?$"), Set.of(ACCOMMODATION)),
         new Rule("*", Pattern.compile(P + "/accommodation-contacts(/.*)?$"), Set.of(ACCOMMODATION)),
         new Rule("*", Pattern.compile(P + "/chaperones(/.*)?$"), Set.of(ACCOMMODATION)),
-        new Rule("PATCH", Pattern.compile(P + "/programs/[^/]+/(room-allocation-settings|roommate-visible)$"), Set.of(ACCOMMODATION)),
+        new Rule("PATCH", Pattern.compile(P + "/programs/[^/]+/(room-allocation-settings|roommate-visible|room-visibility)$"), Set.of(ACCOMMODATION)),
         // The Accommodation page saves the hotel list through the program update; the controller
         // limits non-full admins to the hotels field.
         new Rule("PATCH", Pattern.compile(P + "/programs/[^/]+$"), Set.of(ACCOMMODATION)),
@@ -110,6 +110,11 @@ public final class AdminPermissions {
         new Rule("POST", Pattern.compile(P + "/participants/[^/]+/admit$"), Set.of(REGISTRATIONS)),
         // Payment reminders
         new Rule("POST", Pattern.compile(P + "/payments/reminders$"), Set.of(PAYMENTS)),
+        // Program policies (read): screens for every area read them, e.g. room visibility on Accommodation
+        new Rule("GET", Pattern.compile(P + "/programs/[^/]+/policies$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
+        // Attendee lookup (help desk): every admin can find someone and see their page
+        new Rule("GET", Pattern.compile(P + "/lookup$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
+        new Rule("GET", Pattern.compile(P + "/participants/[^/]+/attendee-view$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
         // Program overview: every admin sees the parts their permissions cover
         new Rule("GET", Pattern.compile(P + "/overview$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN))
     );

@@ -35,7 +35,7 @@ public class PaymentReminderJob {
     /** Due on/after (start − days) and before the program ends, if not sent yet. */
     static boolean due(Program p, LocalDate today) {
         if (!Boolean.TRUE.equals(p.getPaymentRemindersEnabled()) || p.getAutoReminderDays() == null
-            || p.getAutoReminderSentAt() != null || p.getStartDate() == null || p.getRegistrationFee() == null) return false;
+            || p.getAutoReminderSentAt() != null || p.getStartDate() == null || !com.btl.transport.program.FeeRules.hasAnyFee(p)) return false;
         LocalDate start;
         try { start = LocalDate.parse(p.getStartDate().trim().substring(0, Math.min(10, p.getStartDate().trim().length()))); }
         catch (Exception e) { return false; }

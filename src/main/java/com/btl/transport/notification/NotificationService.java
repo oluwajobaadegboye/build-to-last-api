@@ -25,6 +25,7 @@ public class NotificationService {
     private final SendGridService sendGridService;
     private final NotificationConfigRepository configRepository;
     private final ProgramRepository programRepository;
+    private final PaymentInstructions paymentInstructions;
 
     @Value("${btl.frontend-base-url}")
     private String frontendBaseUrl;
@@ -57,21 +58,24 @@ public class NotificationService {
     /** Sent when an admin gives a waitlisted person a place. */
     public void sendWaitlistPlace(Participant p) {
         if (p.getEmail() == null || p.getEmail().isBlank()) return;
-        ProgramBranding brand = ProgramBranding.of(programOf(p.getProgramId()));
+        Program program = programOf(p.getProgramId());
+        ProgramBranding brand = ProgramBranding.of(program);
         String statusLink = frontendBaseUrl + "/status?code=" + p.getRegCode();
+        java.math.BigDecimal due = com.btl.transport.program.FeeRules.feeFor(program, p);
         String plain = "Hi " + p.getFullName() + ",\n\nGood news: a place has opened up and you're now registered for "
-            + brand.nameOrGeneric() + ".\n\nYour registration code: " + p.getRegCode() + "\n" + statusLink + "\n\n" + brand.teamName();
-        String html = EmailLayout.forProgram(brand)
+            + brand.nameOrGeneric() + ".\n\nYour registration code: " + p.getRegCode() + "\n" + statusLink + "\n"
+            + paymentInstructions.plain(program, due) + "\n" + brand.teamName();
+        EmailLayout email = EmailLayout.forProgram(brand)
             .title("You have a place")
             .preheader("You're off the waitlist for " + brand.nameOrGeneric())
             .greeting(p.getFullName())
             .paragraph("Good news: a place has opened up and you're now registered for " + brand.nameOrGeneric() + ".")
             .code("Your registration code", p.getRegCode())
-            .button("View my registration", statusLink)
-            .details("Program details", programRows(brand))
-            .html();
+            .button("View my registration", statusLink);
+        var images = paymentInstructions.addTo(email, program, due);
+        String html = email.details("Program details", programRows(brand)).html();
         sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(),
-            brand.subject("You have a place"), html, plain);
+            brand.subject("You have a place"), html, plain, images);
     }
 
     /** Sent instead of the confirmation when someone joins a full program's waitlist. */
@@ -106,19 +110,23 @@ public class NotificationService {
             textTemplate(p.getProgramId(), NotificationConfig::getTemplateRegistration, DEFAULT_REGISTRATION), vars);
         if (smsEnabled && p.getPhone() != null) twilioService.sendSms(p.getPhone(), plainBody);
         if (p.getEmail() != null) {
-            String html = EmailLayout.forProgram(brand)
+            // Their fee (by their answer when fees differ), with the program's payment instructions and QR code.
+            java.math.BigDecimal due = com.btl.transport.program.FeeRules.feeFor(program, p);
+            EmailLayout email = EmailLayout.forProgram(brand)
                 .title("You're registered")
                 .preheader("Your registration code is " + p.getRegCode())
                 .greeting(p.getFullName())
                 .paragraph("Thanks for registering for " + brand.nameOrGeneric() + ". Your place is confirmed.")
                 .code("Your registration code", p.getRegCode())
                 .paragraph("Keep this code handy. Use it any time to see " + vars.get("covers") + ".")
-                .button("View my registration", statusLink)
+                .button("View my registration", statusLink);
+            var images = paymentInstructions.addTo(email, program, due);
+            String html = email
                 .details("Program details", programRows(brand))
                 .footerNote("You're receiving this because you registered for " + brand.nameOrGeneric() + ".")
                 .html();
             sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(),
-                brand.subject("Registration confirmed"), html, plainBody);
+                brand.subject("Registration confirmed"), html, plainBody + paymentInstructions.plain(program, due), images);
         }
     }
 

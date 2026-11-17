@@ -33,6 +33,7 @@ public class PaymentService {
     private final ParticipantRepository participantRepository;
     private final ProgramRepository programRepository;
     private final com.btl.transport.notification.SendGridService sendGridService;
+    private final com.btl.transport.notification.PaymentInstructions paymentInstructions;
 
     public static String normalizeStatus(String s) {
         return s != null && STATUSES.contains(s.trim().toLowerCase(Locale.ROOT)) ? s.trim().toLowerCase(Locale.ROOT) : UNPAID;
@@ -42,9 +43,19 @@ public class PaymentService {
         return p.getProgramId() == null ? null : programRepository.findById(p.getProgramId()).orElse(null);
     }
 
-    private static BigDecimal fee(Program prog) {
-        BigDecimal f = prog == null ? null : prog.getRegistrationFee();
-        return f != null && f.signum() > 0 ? f : null;
+    /** This person's fee (the base fee, or their answer's fee when fees differ by answer); null = nothing to pay. */
+    private static BigDecimal fee(Program prog, Participant p) {
+        return com.btl.transport.program.FeeRules.feeFor(prog, p);
+    }
+
+    /** Total paid so far (payments less refunds). */
+    public BigDecimal totalPaid(Participant p) {
+        return paymentRepository.totalForParticipant(p.getId());
+    }
+
+    /** This person's fee, for emails and screens; null = nothing to pay. */
+    public BigDecimal feeFor(Participant p) {
+        return fee(programOf(p), p);
     }
 
     /** Status implied by the total paid against the fee. */
@@ -93,12 +104,28 @@ public class PaymentService {
         return summary(p);
     }
 
-    /** Status after the ledger changed: follows the fee when there is one; without a fee, nothing paid = unpaid. */
+    /** Status after the ledger (or their fee) changed: follows the fee when there is one; without a fee, nothing paid = unpaid. */
     private void restatus(Participant p) {
-        BigDecimal fee = fee(programOf(p));
+        BigDecimal fee = fee(programOf(p), p);
         BigDecimal total = paymentRepository.totalForParticipant(p.getId());
         if (fee != null) p.setPaymentStatus(statusFor(total, fee));
         else if (total.signum() <= 0) p.setPaymentStatus(UNPAID);
+    }
+
+    /**
+     * After an answer that sets the fee changes (admin edit or self-edit): re-check this person's status.
+     * Nothing recorded keeps the status, so a manual "paid" (a waived fee) isn't undone.
+     */
+    @Transactional
+    public void recheck(Participant p) {
+        BigDecimal total = paymentRepository.totalForParticipant(p.getId());
+        BigDecimal fee = fee(programOf(p), p);
+        if (fee == null || total.signum() <= 0) return;
+        String next = statusFor(total, fee);
+        if (!next.equals(normalizeStatus(p.getPaymentStatus()))) {
+            p.setPaymentStatus(next);
+            participantRepository.save(p);
+        }
     }
 
     /**
@@ -109,14 +136,14 @@ public class PaymentService {
     @Transactional
     public int recalculateForProgram(String programId) {
         Program prog = programRepository.findById(programId).orElse(null);
-        BigDecimal fee = fee(prog);
-        if (fee == null) return 0;
+        if (!com.btl.transport.program.FeeRules.hasAnyFee(prog)) return 0;
         List<Participant> people = participantRepository.findAllByProgramIdWithHotel(programId);
         Map<Integer, BigDecimal> totals = totals(people.stream().map(Participant::getId).toList());
         int changed = 0;
         for (Participant p : people) {
             BigDecimal total = totals.getOrDefault(p.getId(), BigDecimal.ZERO);
-            if (total.signum() <= 0) continue;
+            BigDecimal fee = fee(prog, p);
+            if (total.signum() <= 0 || fee == null) continue;
             String next = statusFor(total, fee);
             if (!next.equals(normalizeStatus(p.getPaymentStatus()))) {
                 p.setPaymentStatus(next);
@@ -141,7 +168,7 @@ public class PaymentService {
             .recordedBy(recordedBy)
             .recordedAt(OffsetDateTime.now())
             .build());
-        BigDecimal fee = fee(programOf(p));
+        BigDecimal fee = fee(programOf(p), p);
         BigDecimal total = paymentRepository.totalForParticipant(p.getId());
         if (fee != null) {
             p.setPaymentStatus(statusFor(total, fee));
@@ -243,7 +270,7 @@ public class PaymentService {
                 .append("Paid so far: ").append(money(s.get("total_paid"), cur)).append("\n");
             if (s.get("fee") != null) body.append("Balance due: ").append(money(s.get("balance"), cur)).append("\n");
             body.append("\nIf you've already paid, please ignore this message.\n\n").append(brand.teamName());
-            String html = com.btl.transport.notification.EmailLayout.forProgram(brand)
+            var email = com.btl.transport.notification.EmailLayout.forProgram(brand)
                 .title("Payment reminder")
                 .preheader(s.get("fee") != null ? "Balance due: " + money(s.get("balance"), cur) : "A reminder about your payment")
                 .greeting(p.getFullName())
@@ -251,10 +278,12 @@ public class PaymentService {
                 .details(null, List.of(
                     com.btl.transport.notification.EmailLayout.row("Paid so far", money(s.get("total_paid"), cur)),
                     com.btl.transport.notification.EmailLayout.row("Balance due", s.get("fee") != null ? money(s.get("balance"), cur) : null),
-                    com.btl.transport.notification.EmailLayout.row("Registration code", p.getRegCode())))
-                .note("If you've already paid, please ignore this message.")
-                .html();
-            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), html, body.toString());
+                    com.btl.transport.notification.EmailLayout.row("Registration code", p.getRegCode())));
+            // How to pay (instructions and QR); the balance is already shown above.
+            var images = paymentInstructions.addTo(email, prog, null);
+            String html = email.note("If you've already paid, please ignore this message.").html();
+            sendGridService.sendHtmlEmailAs(brand.senderName(), p.getEmail(), p.getFullName(), brand.subject("Payment reminder"), html,
+                body + paymentInstructions.plain(prog, null), images);
             sent++;
         }
         return sent;
@@ -287,7 +316,7 @@ public class PaymentService {
 
     public Map<String, Object> summary(Participant p) {
         Program prog = programOf(p);
-        BigDecimal fee = fee(prog);
+        BigDecimal fee = fee(prog, p);
         BigDecimal total = paymentRepository.totalForParticipant(p.getId());
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("status", normalizeStatus(p.getPaymentStatus()));

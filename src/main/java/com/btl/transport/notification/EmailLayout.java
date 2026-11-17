@@ -163,6 +163,23 @@ public final class EmailLayout {
         return this;
     }
 
+    /** A centred image, e.g. a payment QR code ({@code src} may be a "cid:" inline attachment). */
+    public EmailLayout image(String src, String alt, int width) {
+        if (src == null || src.isBlank()) return this;
+        blocks.add("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 0 20px;\"><tr><td align=\"center\">"
+            + "<img src=\"" + ProgramBranding.escape(src) + "\" alt=\"" + ProgramBranding.escape(alt) + "\" width=\"" + width
+            + "\" style=\"display:block;width:" + width + "px;max-width:100%;height:auto;border:1px solid " + BORDER + ";border-radius:10px;\">"
+            + "</td></tr></table>");
+        return this;
+    }
+
+    /** A small section heading inside the card. */
+    public EmailLayout heading(String text) {
+        if (text == null || text.isBlank()) return this;
+        blocks.add("<div style=\"margin:8px 0 10px;font-size:16px;font-weight:700;color:" + INK + ";\">" + ProgramBranding.escape(text) + "</div>");
+        return this;
+    }
+
     /** Smaller, quieter text (e.g. "If you didn't sign up, ignore this email"). */
     public EmailLayout note(String text) {
         if (text == null || text.isBlank()) return this;

@@ -36,7 +36,8 @@ class ProgramBrandedNotificationsTest {
         sendGrid = mock(SendGridService.class);
         programs = mock(ProgramRepository.class);
         configs = mock(NotificationConfigRepository.class);
-        service = new NotificationService(mock(TwilioService.class), sendGrid, configs, programs);
+        service = new NotificationService(mock(TwilioService.class), sendGrid, configs, programs,
+            new com.btl.transport.notification.PaymentInstructions(mock(com.btl.transport.program.ProgramPaymentQrRepository.class)));
         ReflectionTestUtils.setField(service, "frontendBaseUrl", "https://app.example.com");
         ReflectionTestUtils.setField(service, "smsEnabled", false);
         // A global "main" config full of another program's text must never be used.
@@ -72,7 +73,10 @@ class ProgramBrandedNotificationsTest {
         ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> plain = ArgumentCaptor.forClass(String.class);
-        verify(sendGrid).sendHtmlEmailAs(sender.capture(), anyString(), anyString(), subject.capture(), html.capture(), plain.capture());
+        // Emails with a "How to pay" section use the overload that can attach a QR code.
+        boolean withImages = mockingDetails(sendGrid).getInvocations().stream().anyMatch(i -> i.getArguments().length == 7);
+        if (withImages) verify(sendGrid).sendHtmlEmailAs(sender.capture(), anyString(), anyString(), subject.capture(), html.capture(), plain.capture(), any());
+        else verify(sendGrid).sendHtmlEmailAs(sender.capture(), anyString(), anyString(), subject.capture(), html.capture(), plain.capture());
         return new Sent(sender.getValue(), subject.getValue(), html.getValue(), plain.getValue());
     }
 

@@ -14,7 +14,8 @@ class TemplateRenderingTest {
         mock(com.btl.transport.notification.TwilioService.class),
         mock(com.btl.transport.notification.SendGridService.class),
         mock(com.btl.transport.notification.NotificationConfigRepository.class),
-        mock(com.btl.transport.program.ProgramRepository.class)
+        mock(com.btl.transport.program.ProgramRepository.class),
+        new com.btl.transport.notification.PaymentInstructions(mock(com.btl.transport.program.ProgramPaymentQrRepository.class))
     );
 
     @Test

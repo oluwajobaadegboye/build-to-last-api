@@ -690,6 +690,8 @@ public class AdminController {
         }
         p.setUpdatedAt(OffsetDateTime.now());
         participantRepository.save(p);
+        // An answer can set their fee (fee by answer): re-check their payment status.
+        if (req.customAnswers() != null && paymentService != null) paymentService.recheck(p);
         Audit.detail(auditChanges(before, auditSnapshot(p)));
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream()

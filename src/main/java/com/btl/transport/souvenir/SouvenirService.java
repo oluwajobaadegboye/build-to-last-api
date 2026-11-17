@@ -159,6 +159,7 @@ public class SouvenirService {
         for (SouvenirItem item : itemRepository.findByProgramIdAndActiveTrueOrderBySortOrderAscIdAsc(p.getProgramId())) {
             ParticipantSouvenir r = mine.get(item.getId());
             Map<String, Object> m = new LinkedHashMap<>();
+            m.put("item_id", item.getId());
             m.put("name", item.getName());
             m.put("choice", r != null ? r.getChoice() : null);
             m.put("received", r != null && Boolean.TRUE.equals(r.getReceived()));

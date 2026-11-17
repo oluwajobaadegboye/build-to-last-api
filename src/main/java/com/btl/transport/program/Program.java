@@ -199,6 +199,26 @@ public class Program {
     @Column(name = "attendee_self_edit")
     private Boolean attendeeSelfEdit;
 
+    /** How to pay (e.g. Zelle details), shown after registering, in the email and on the attendee's page. */
+    @Column(name = "payment_instructions", columnDefinition = "TEXT")
+    private String paymentInstructions;
+
+    /** Fee by answer: the question whose options set the fee (null = everyone pays registrationFee). */
+    @Column(name = "fee_question_key", length = 100)
+    private String feeQuestionKey;
+
+    /** JSON {"option": amount} for feeQuestionKey; options without an amount pay registrationFee. */
+    @Column(name = "fee_by_option", columnDefinition = "TEXT")
+    private String feeByOption;
+
+    /** When attendees see their room: null/always, checkin, date, checkin_or_date. */
+    @Column(name = "room_visibility", length = 20)
+    private String roomVisibility;
+
+    /** For date / checkin_or_date: "YYYY-MM-DDTHH:mm" in the program's timezone. */
+    @Column(name = "room_visible_from", length = 16)
+    private String roomVisibleFrom;
+
     /** Attendees see their payment status/balance on their status page. */
     @Column(name = "show_payment_to_attendees", nullable = false)
     @Builder.Default

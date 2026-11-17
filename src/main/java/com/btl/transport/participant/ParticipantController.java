@@ -76,6 +76,8 @@ public class ParticipantController {
     private final com.btl.transport.registration.RegistrationSectionRepository registrationSectionRepository;
     private final com.btl.transport.room.ChaperoneService chaperoneService;
     private final com.btl.transport.admin.AuditLogRepository auditLogRepository;
+    private final com.btl.transport.program.ProgramPaymentQrRepository paymentQrRepository;
+    private final com.btl.transport.admin.AdminAccess adminAccess;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -163,7 +165,9 @@ public class ParticipantController {
         resp.put("ask_phone",       !Boolean.FALSE.equals(program.getAskPhone()));
         // The fee for the registration page: only when the program shows it and has a fee; else null.
         Map<String, Object> landingFee = null;
-        if (Boolean.TRUE.equals(program.getShowFeeOnLanding())
+        boolean feesByAnswer = com.btl.transport.program.FeeRules.byAnswer(program);
+        // When fees differ by answer there's no single fee to show up front; the form shows theirs.
+        if (Boolean.TRUE.equals(program.getShowFeeOnLanding()) && !feesByAnswer
                 && program.getRegistrationFee() != null && program.getRegistrationFee().signum() > 0) {
             landingFee = new java.util.LinkedHashMap<>();
             landingFee.put("amount", program.getRegistrationFee());
@@ -171,8 +175,31 @@ public class ParticipantController {
             landingFee.put("label", program.getFeeLabel() != null && !program.getFeeLabel().isBlank() ? program.getFeeLabel() : "Registration fee");
         }
         resp.put("landing_fee", landingFee);
+        // Fee details for the form ("Your registration fee: ...") and the success screen's "How to pay".
+        Map<String, Object> fees = new java.util.LinkedHashMap<>();
+        fees.put("base", program.getRegistrationFee() != null && program.getRegistrationFee().signum() > 0 ? program.getRegistrationFee() : null);
+        fees.put("currency", program.getFeeCurrency() != null ? program.getFeeCurrency() : "USD");
+        fees.put("label", program.getFeeLabel() != null && !program.getFeeLabel().isBlank() ? program.getFeeLabel() : "Registration fee");
+        fees.put("question_key", feesByAnswer ? program.getFeeQuestionKey() : null);
+        fees.put("by_option", feesByAnswer ? com.btl.transport.program.FeeRules.optionFees(program) : Map.of());
+        resp.put("fees", fees);
+        resp.put("payment_instructions", program.getPaymentInstructions());
+        resp.put("has_payment_qr", paymentQrRepository.existsById(program.getId()));
         resp.put("hotels", hotelList);
         return ResponseEntity.ok(resp);
+    }
+
+    // ── GET /api/v1/programs/{id}/payment-qr ──────────────────────────────
+    @Operation(summary = "Payment QR code", description = "The program's payment QR image (for the registration and status pages)")
+    @GetMapping("/programs/{id}/payment-qr")
+    public ResponseEntity<byte[]> paymentQr(@PathVariable String id) {
+        return paymentQrRepository.findById(id)
+            .map(q -> ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.parseMediaType(q.getContentType()))
+                .cacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofMinutes(10)))
+                .eTag("\"" + q.getUpdatedAt().toEpochSecond() + "\"")
+                .body(q.getData()))
+            .orElse(ResponseEntity.notFound().build());
     }
 
     // ── GET /api/v1/coordinator-contacts ──────────────────────────────────
@@ -325,6 +352,35 @@ public class ParticipantController {
     public ResponseEntity<ParticipantStatusResponse> participantStatus(@RequestParam("code") String code) {
         Participant p = participantRepository.findByRegCodeWithHotel(code)
             .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
+        return ResponseEntity.ok(buildStatus(p, false));
+    }
+
+    // ── GET /api/v1/admin/participants/{code}/attendee-view ───────────────
+    @Operation(summary = "Attendee view (admin lookup)", description = "Everything the attendee would see on their page — room always shown — plus check-in, for helping people without a phone")
+    @GetMapping("/admin/participants/{code}/attendee-view")
+    @Transactional(readOnly = true)
+    public Map<String, Object> attendeeViewForAdmin(@PathVariable String code) {
+        Participant p = participantRepository.findByRegCodeWithHotel(code)
+            .orElseThrow(() -> new EntityNotFoundException("Participant not found: " + code));
+        adminAccess.requireProgram(p.getProgramId());
+        Program prog = p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("status", buildStatus(p, true));
+        out.put("email", p.getEmail());
+        out.put("gender", p.getGender());
+        out.put("checked_in_at", p.getCheckedInAt() != null ? p.getCheckedInAt().toString() : null);
+        out.put("checked_in_by", p.getCheckedInBy());
+        out.put("breakout_group", p.getBreakoutGroup());
+        Map<String, Object> pay = paymentService.summary(p);
+        out.put("payment", com.btl.transport.payment.PaymentService.canSeeAmounts(prog, adminAccess.permissions())
+            ? pay : com.btl.transport.payment.PaymentService.withoutAmounts(pay));
+        out.put("permissions", adminAccess.permissions());
+        return out;
+    }
+
+    /** Everything on the attendee's page. {@code adminView}: rooms are never held back and self-edit details are left out. */
+    @SuppressWarnings("unchecked")
+    public ParticipantStatusResponse buildStatus(Participant p, boolean adminView) {
 
         List<Flight> flights = flightRepository.findByParticipant(p);
         Flight arrival   = flights.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null);
@@ -384,10 +440,24 @@ public class ParticipantController {
                 )).orElse(null);
         }
 
-        RoomDto roomDto = buildRoomDto(p, programInfo);
+        Program prog = p.getProgramId() != null ? programRepository.findById(p.getProgramId()).orElse(null) : null;
+        // The program may hold rooms back until check-in and/or a date (admins always see them).
+        Map<String, Object> roomLocked = adminView || prog == null ? null
+            : com.btl.transport.program.RoomVisibility.lock(prog, p.getCheckedInAt(), OffsetDateTime.now());
+        RoomDto roomDto = roomLocked != null ? null : buildRoomDto(p, programInfo);
 
         Object[] chaperoneView = chaperoneService.attendeeView(p);
-        return ResponseEntity.ok(new ParticipantStatusResponse(
+        List<Map<String, Object>> chaperones = (List<Map<String, Object>>) chaperoneView[0];
+        if (roomLocked != null) {
+            // Don't give the room away through its chaperone's label.
+            chaperones = chaperones.stream().map(c -> {
+                if (!"room".equals(c.get("role"))) return c;
+                Map<String, Object> m = new java.util.LinkedHashMap<>(c);
+                m.put("label", "Room chaperone");
+                return m;
+            }).toList();
+        }
+        return new ParticipantStatusResponse(
             participantDto,
             toFlightDto(arrival, arrivalPickupTime),
             toFlightDto(departure, departurePickupTime),
@@ -396,24 +466,48 @@ public class ParticipantController {
             roomDto,
             OffsetDateTime.now().toString(),
             souvenirService.attendeeView(p),
-            programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
-                .filter(prog -> Boolean.TRUE.equals(prog.getShowPaymentToAttendees()))
-                .map(prog -> paymentService.attendeeSummary(p)).orElse(null),
-            (List<Map<String, Object>>) chaperoneView[0],
+            prog != null && Boolean.TRUE.equals(prog.getShowPaymentToAttendees()) ? paymentService.attendeeSummary(p) : null,
+            chaperones,
             (List<Map<String, Object>>) chaperoneView[1],
             p.getWaitlistedAt() != null,
-            programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
-                .filter(prog -> Boolean.TRUE.equals(prog.getAttendeeSelfEdit()))
-                .map(prog -> {
+            adminView ? null : programRepository.findById(p.getProgramId() != null ? p.getProgramId() : "")
+                .filter(pr -> Boolean.TRUE.equals(pr.getAttendeeSelfEdit()))
+                .map(pr -> {
                     Map<String, Object> d = new java.util.LinkedHashMap<>();
                     d.put("first_name", p.getFirstName());
                     d.put("last_name", p.getLastName());
                     d.put("phone", p.getPhone());
-                    d.put("ask_phone", !Boolean.FALSE.equals(prog.getAskPhone()));
+                    d.put("ask_phone", !Boolean.FALSE.equals(pr.getAskPhone()));
                     d.put("custom_answers", registrationFieldService.parseAnswers(p.getCustomAnswers()));
                     return d;
-                }).orElse(null)
-        ));
+                }).orElse(null),
+            roomLocked,
+            paymentInfo(prog, p)
+        );
+    }
+
+    /**
+     * "How to pay" for the attendee's page: their fee, the program's instructions and whether there's a QR code.
+     * Null when there's nothing to say, they're on the waitlist, or they've paid in full.
+     */
+    private Map<String, Object> paymentInfo(Program prog, Participant p) {
+        if (prog == null || p.getWaitlistedAt() != null) return null;
+        if (com.btl.transport.payment.PaymentService.PAID.equals(com.btl.transport.payment.PaymentService.normalizeStatus(p.getPaymentStatus()))) return null;
+        java.math.BigDecimal fee = com.btl.transport.program.FeeRules.feeFor(prog, p);
+        String text = prog.getPaymentInstructions();
+        boolean qr = paymentQrRepository.existsById(prog.getId());
+        if ((text == null || text.isBlank()) && !qr) return null;
+        // What's still owed: their fee less what's been recorded (so someone part paid sees the rest, not the full fee).
+        java.math.BigDecimal paid = paymentService.totalPaid(p);
+        java.math.BigDecimal due = fee == null ? null : fee.subtract(paid).max(java.math.BigDecimal.ZERO);
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("instructions", text);
+        m.put("has_qr", qr);
+        m.put("fee", fee);
+        m.put("due", due);
+        m.put("paid_some", paid.signum() > 0);
+        m.put("currency", prog.getFeeCurrency() != null ? prog.getFeeCurrency() : "USD");
+        return m;
     }
 
     // ── PATCH /api/v1/my-details ──────────────────────────────────────────
@@ -475,6 +569,7 @@ public class ParticipantController {
         if (!changed.isEmpty()) {
             p.setUpdatedAt(OffsetDateTime.now());
             participantRepository.save(p);
+            if (changed.contains("answers")) paymentService.recheck(p);  // an answer can set their fee
             auditLogRepository.save(com.btl.transport.admin.AuditLog.builder()
                 .programId(p.getProgramId()).username("attendee").action("Updated their own details")
                 .category("participants").target(p.getRegCode()).targetName(p.getFullName())
