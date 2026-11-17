@@ -27,8 +27,13 @@ public class ShuttleSchedulerJob {
     private final ProgramRepository programRepository;
     private final RunService runService;
 
+    /** Only one server copy runs each round (absent in unit tests, which build the job directly). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.btl.transport.scheduler.JobLock jobLock;
+
     @Scheduled(cron = "${btl.shuttle.generation-cron:0 5 * * * *}", zone = "UTC")
     public void generateDailySlots() {
+        if (jobLock != null && !jobLock.acquire("shuttle-generation", java.time.Duration.ofMinutes(50))) return;
         for (Program program : programRepository.findAllByOrderByCreatedAtDesc()) {
             try {
                 generateIfDue(program, ZonedDateTime.now(ProgramDates.zone(program)));

@@ -93,6 +93,65 @@ public final class EmailLayout {
         return this;
     }
 
+    /**
+     * Text an organiser wrote with the same simple formatting as the program description (see the frontend's
+     * RichText): blank line = new paragraph, Enter = line break, "- " or "• " lines = bullets, **bold**, *italic*,
+     * [label](https://…) and bare https://… links. Everything else is escaped; no HTML from the text gets through.
+     */
+    public EmailLayout richText(String text) {
+        if (text == null || text.isBlank()) return this;
+        String p = "<p style=\"margin:0 0 16px;font-size:15px;line-height:1.6;color:" + BODY + ";\">";
+        for (String para : text.replace("\r\n", "\n").replace('\r', '\n').trim().split("\\n\\s*\\n")) {
+            StringBuilder lines = new StringBuilder();
+            StringBuilder bullets = new StringBuilder();
+            for (String line : para.split("\n")) {
+                String t = line.strip();
+                if (t.startsWith("- ") || t.startsWith("• ") || t.startsWith("* ")) {
+                    if (lines.length() > 0) { blocks.add(p + lines + "</p>"); lines.setLength(0); }
+                    bullets.append("<li style=\"margin:0 0 6px;\">").append(inline(t.substring(2).strip())).append("</li>");
+                } else {
+                    if (bullets.length() > 0) { blocks.add(ul(bullets)); bullets.setLength(0); }
+                    if (lines.length() > 0) lines.append("<br>");
+                    lines.append(inline(t));
+                }
+            }
+            if (bullets.length() > 0) blocks.add(ul(bullets));
+            if (lines.length() > 0) blocks.add(p + lines + "</p>");
+        }
+        return this;
+    }
+
+    private static String ul(CharSequence items) {
+        return "<ul style=\"margin:0 0 16px;padding-left:22px;font-size:15px;line-height:1.6;color:" + BODY + ";\">" + items + "</ul>";
+    }
+
+    private static final Pattern MD_LINK = Pattern.compile("\\[([^\\]\\n]{1,200})\\]\\(((?:https?://|mailto:)[^\\s)]+)\\)|https?://[^\\s<>\"')]+");
+
+    /** One line: links first (on the raw text), then bold/italic on the escaped rest. */
+    static String inline(String raw) {
+        Matcher m = MD_LINK.matcher(raw);
+        StringBuilder sb = new StringBuilder();
+        int last = 0;
+        while (m.find()) {
+            sb.append(emphasis(ProgramBranding.escape(raw.substring(last, m.start()))));
+            if (m.group(1) != null) sb.append(link(m.group(2), m.group(1)));
+            else {
+                String url = m.group();
+                String label = url.replaceFirst("^https?://(www\\.)?", "");
+                sb.append(link(url, label.length() > 45 ? label.substring(0, 44) + "…" : label));
+            }
+            last = m.end();
+        }
+        sb.append(emphasis(ProgramBranding.escape(raw.substring(last))));
+        return sb.toString();
+    }
+
+    private static String emphasis(String escaped) {
+        return escaped
+            .replaceAll("\\*\\*(\\S(?:.*?\\S)?)\\*\\*", "<strong>$1</strong>")
+            .replaceAll("(?<![*\\w])\\*(\\S(?:.*?\\S)?)\\*(?![*\\w])", "<em>$1</em>");
+    }
+
     /** A highlighted code (registration code, etc.) in its own box. */
     public EmailLayout code(String label, String code) {
         if (code == null || code.isBlank()) return this;

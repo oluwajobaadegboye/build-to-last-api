@@ -72,6 +72,8 @@ public class ParticipantExportController {
         c.add(new Column("payment_status", "Payment status", prog, r -> switch (PaymentService.normalizeStatus(r.p().getPaymentStatus())) {
             case PaymentService.PAID -> "Paid"; case PaymentService.PARTIAL -> "Part paid"; default -> "Unpaid"; }));
         c.add(new Column("amount_paid", "Amount paid", prog, r -> showAmounts && r.paid() != null ? r.paid().toPlainString() : ""));
+        c.add(new Column("waitlist", "On waitlist", prog, r -> r.p().getWaitlistedAt() != null ? "Yes" : "No"));
+        c.add(new Column("checked_in", "Checked in", prog, r -> r.p().getCheckedInAt() != null ? r.p().getCheckedInAt().toString() : ""));
         for (RegistrationField f : fieldRepository.findByProgramIdOrderBySortOrderAscIdAsc(programId)) {
             String label = Boolean.TRUE.equals(f.getActive()) ? f.getLabel() : f.getLabel() + " (removed)";
             c.add(new Column("q:" + f.getFieldKey(), label, "Additional info", r -> answerText(r.answers().get(f.getFieldKey()))));
@@ -153,6 +155,33 @@ public class ParticipantExportController {
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"participants-" + programId + ".csv\"")
             .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
             .body(csv.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Every column for every participant (heading row first) — for the Google Sheets backup. */
+    @Transactional(readOnly = true)
+    public List<List<String>> table(String programId) {
+        List<Participant> participants = participantRepository.findAllByProgramIdWithHotel(programId);
+        List<Column> cols = columns(programId, true);
+        Map<Integer, java.math.BigDecimal> paid = paymentService.totals(participants.stream().map(Participant::getId).toList());
+        Map<Integer, Map<Integer, ParticipantSouvenir>> souvenirs = souvenirService.recordsForProgram(programId);
+        Map<Integer, List<Flight>> flights = participants.isEmpty() ? Map.of()
+            : flightRepository.findByParticipantIn(participants).stream().collect(Collectors.groupingBy(f -> f.getParticipant().getId()));
+        List<List<String>> out = new ArrayList<>();
+        out.add(cols.stream().map(Column::label).toList());
+        // Oldest first, so new registrations land at the bottom like a sign-up sheet.
+        List<Participant> ordered = new ArrayList<>(participants);
+        ordered.sort(Comparator.comparing(Participant::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder())));
+        for (Participant p : ordered) {
+            List<Flight> fl = flights.getOrDefault(p.getId(), List.of());
+            Row r = new Row(p,
+                fl.stream().filter(f -> f.getDirection() == Direction.TO_HOTEL).findFirst().orElse(null),
+                fl.stream().filter(f -> f.getDirection() == Direction.TO_AIRPORT).findFirst().orElse(null),
+                fieldService.parseAnswers(p.getCustomAnswers()),
+                souvenirs.getOrDefault(p.getId(), Map.of()),
+                paid.getOrDefault(p.getId(), java.math.BigDecimal.ZERO));
+            out.add(cols.stream().map(c -> c.value().apply(r)).toList());
+        }
+        return out;
     }
 
     private static String s(String v) { return v == null ? "" : v; }

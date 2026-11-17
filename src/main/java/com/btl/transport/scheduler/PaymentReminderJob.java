@@ -24,8 +24,13 @@ public class PaymentReminderJob {
     private final ProgramRepository programRepository;
     private final PaymentService paymentService;
 
+    /** Only one server copy runs each round (absent in unit tests, which build the job directly). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.btl.transport.scheduler.JobLock jobLock;
+
     @Scheduled(cron = "0 0 * * * *", zone = "UTC")  // hourly; each program sends at most once
     public void run() {
+        if (jobLock != null && !jobLock.acquire("payment-reminders", java.time.Duration.ofMinutes(50))) return;
         for (Program p : programRepository.findAll()) {
             try { if (due(p)) send(p); }
             catch (Exception e) { log.warn("Automatic payment reminder failed for {}: {}", p.getId(), e.getMessage()); }

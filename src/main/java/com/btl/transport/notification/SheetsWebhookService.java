@@ -22,7 +22,7 @@ public class SheetsWebhookService {
     @Value("${btl.sheets.webhook-url:}")
     private String webhookUrl;
 
-    @Value("${btl.sheets.enabled:true}")
+    @Value("${btl.sheets.enabled:false}")
     private boolean enabled;
 
     private final HttpClient http = HttpClient.newBuilder()

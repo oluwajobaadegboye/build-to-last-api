@@ -34,6 +34,10 @@ public class FlightPollingJob {
     private final AviationStackClient aviationStackClient;
     private final ProgramRepository programRepository;
 
+    /** Only one server copy runs each round (absent in unit tests, which build the job directly). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.btl.transport.scheduler.JobLock jobLock;
+
     @Value("${btl.polling.pre-arrival-hours:6}")
     private int preArrivalHours;
 
@@ -42,6 +46,7 @@ public class FlightPollingJob {
 
     @Scheduled(fixedDelayString = "${btl.polling.interval-ms:1800000}")
     public void pollFlights() {
+        if (jobLock != null && !jobLock.acquire("flight-polling", java.time.Duration.ofMinutes(20))) return;
         // Global settings now only supply platform defaults (delay thresholds). When flights are tracked
         // is per program: from the day before it starts to the day after it ends (ProgramDates.trackingWindow).
         AirportConfig config = airportConfigRepository.findByConfigKey("main").orElse(null);

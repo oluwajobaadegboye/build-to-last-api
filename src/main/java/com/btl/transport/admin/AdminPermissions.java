@@ -26,8 +26,10 @@ public final class AdminPermissions {
     public static final String SOUVENIRS = "SOUVENIRS";
     /** Venue check-in desk: find people and mark them arrived. */
     public static final String CHECKIN = "CHECKIN";
+    /** Write and send announcements (emails to attendees, also shown on their pages). */
+    public static final String MESSAGING = "MESSAGING";
 
-    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN);
+    public static final List<String> ALL = List.of(FULL, REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN, MESSAGING);
 
     /** "REGISTRATIONS, payments" → {REGISTRATIONS, PAYMENTS}; unknown values dropped; FULL absorbs the rest. */
     public static Set<String> parse(String stored) {
@@ -64,6 +66,7 @@ public final class AdminPermissions {
                 case ACCOMMODATION -> "Accommodation";
                 case SOUVENIRS -> "Souvenirs";
                 case CHECKIN -> "Check-in";
+                case MESSAGING -> "Announcements";
                 default -> p;
             });
         }
@@ -106,17 +109,19 @@ public final class AdminPermissions {
         // Check-in desk
         new Rule("GET", Pattern.compile(P + "/check-in$"), Set.of(CHECKIN)),
         new Rule("PUT", Pattern.compile(P + "/participants/[^/]+/check-in$"), Set.of(CHECKIN)),
+        // Announcements
+        new Rule("*", Pattern.compile(P + "/announcements(/.*)?$"), Set.of(MESSAGING)),
         // Waitlist: give someone a place
         new Rule("POST", Pattern.compile(P + "/participants/[^/]+/admit$"), Set.of(REGISTRATIONS)),
         // Payment reminders
         new Rule("POST", Pattern.compile(P + "/payments/reminders$"), Set.of(PAYMENTS)),
         // Program policies (read): screens for every area read them, e.g. room visibility on Accommodation
-        new Rule("GET", Pattern.compile(P + "/programs/[^/]+/policies$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
+        new Rule("GET", Pattern.compile(P + "/programs/[^/]+/policies$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN, MESSAGING)),
         // Attendee lookup (help desk): every admin can find someone and see their page
-        new Rule("GET", Pattern.compile(P + "/lookup$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
-        new Rule("GET", Pattern.compile(P + "/participants/[^/]+/attendee-view$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN)),
+        new Rule("GET", Pattern.compile(P + "/lookup$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN, MESSAGING)),
+        new Rule("GET", Pattern.compile(P + "/participants/[^/]+/attendee-view$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN, MESSAGING)),
         // Program overview: every admin sees the parts their permissions cover
-        new Rule("GET", Pattern.compile(P + "/overview$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN))
+        new Rule("GET", Pattern.compile(P + "/overview$"), Set.of(REGISTRATIONS, PAYMENTS, ACCOMMODATION, SOUVENIRS, CHECKIN, MESSAGING))
     );
 
     /** Whether an admin holding {@code perms} may make this request. */

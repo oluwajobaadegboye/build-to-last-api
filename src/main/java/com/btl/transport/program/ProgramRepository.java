@@ -6,6 +6,9 @@ import java.util.List;
 
 public interface ProgramRepository extends JpaRepository<Program, String> {
     /** Programs an account created since a time (anti-spam cap on self-serve creation). */
+    /** Programs backed up to a Google Sheet. */
+    java.util.List<Program> findBySheetIdIsNotNull();
+
     long countByCreatedByAdminIdAndCreatedAtAfter(Integer createdByAdminId, java.time.OffsetDateTime after);
 
 

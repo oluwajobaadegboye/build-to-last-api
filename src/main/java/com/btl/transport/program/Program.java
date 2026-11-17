@@ -219,6 +219,22 @@ public class Program {
     @Column(name = "room_visible_from", length = 16)
     private String roomVisibleFrom;
 
+    /** Google Sheets backup: the spreadsheet id (null = not connected), tab, its title, last sync and last error. */
+    @Column(name = "sheet_id", length = 200)
+    private String sheetId;
+
+    @Column(name = "sheet_tab", length = 100)
+    private String sheetTab;
+
+    @Column(name = "sheet_title", length = 300)
+    private String sheetTitle;
+
+    @Column(name = "sheet_synced_at")
+    private OffsetDateTime sheetSyncedAt;
+
+    @Column(name = "sheet_error", columnDefinition = "TEXT")
+    private String sheetError;
+
     /** Attendees see their payment status/balance on their status page. */
     @Column(name = "show_payment_to_attendees", nullable = false)
     @Builder.Default

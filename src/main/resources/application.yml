@@ -49,7 +49,8 @@ management:
         include: health,info
   endpoint:
     health:
-      show-details: always
+      # Only UP or DOWN: the load balancer needs no more, and the details (database, disk) are not public.
+      show-details: never
 
 btl:
   conference:
@@ -75,9 +76,11 @@ btl:
       cdn-base-url: ${BTL_UPLOADS_S3_CDN_BASE_URL:}
   notifications:
     sms-enabled: ${SMS_ENABLED:false}
+  # Old single-sheet feed (every program's sign-ups to one Apps Script). Off unless both are set on purpose;
+  # programs use their own Google Sheets backup (Settings → General) instead.
   sheets:
-    webhook-url: ${SHEETS_WEBHOOK_URL:https://script.google.com/macros/s/AKfycbx0IK2RTRMp4jD1M8xh4BlFCJZbAGAx0NELBvGF41Az_LWe_vyieFYK4xm4DLMjdUqI8A/exec}
-    enabled: ${SHEETS_ENABLED:true}
+    webhook-url: ${SHEETS_WEBHOOK_URL:}
+    enabled: ${SHEETS_ENABLED:false}
   polling:
     interval-ms: 1800000
     pre-arrival-hours: 6
@@ -92,6 +95,10 @@ twilio:
   auth-token: ${TWILIO_AUTH_TOKEN:test-token}
   from-number: ${TWILIO_FROM_NUMBER:+10000000000}
   whatsapp-from: ${TWILIO_WHATSAPP_FROM:whatsapp:+10000000000}
+
+# Google Sheets backup: the JSON key of ProgramHub's Google service account (raw JSON or base64). Empty = off.
+google:
+  service-account-json: ${GOOGLE_SERVICE_ACCOUNT_JSON:}
 
 sendgrid:
   api-key: ${SENDGRID_API_KEY}

@@ -78,6 +78,7 @@ public class ParticipantController {
     private final com.btl.transport.admin.AuditLogRepository auditLogRepository;
     private final com.btl.transport.program.ProgramPaymentQrRepository paymentQrRepository;
     private final com.btl.transport.admin.AdminAccess adminAccess;
+    private final com.btl.transport.announcement.AnnouncementService announcementService;
 
     // ── GET /api/v1/health ─────────────────────────────────────────────────
     @Operation(summary = "Health check", description = "Returns the current API service health status")
@@ -482,7 +483,8 @@ public class ParticipantController {
                     return d;
                 }).orElse(null),
             roomLocked,
-            paymentInfo(prog, p)
+            paymentInfo(prog, p),
+            announcementService.forAttendee(p.getId())
         );
     }
 
@@ -577,13 +579,6 @@ public class ParticipantController {
                 .detail(String.join(" · ", changed)).build());
         }
         return ResponseEntity.ok(Map.of("updated", !changed.isEmpty()));
-    }
-
-    // ── POST /api/v1/send-notification ────────────────────────────────────
-    @Operation(summary = "Send notification", description = "Queues a transport notification for delivery (stub — always returns success)")
-    @PostMapping("/send-notification")
-    public ResponseEntity<NotificationResponse> sendNotification() {
-        return ResponseEntity.ok(new NotificationResponse(true, "Notification queued"));
     }
 
     public record SelfBoardRequest(

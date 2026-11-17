@@ -8,11 +8,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,50 +27,42 @@ class RegCodeServiceTest {
     @InjectMocks
     RegCodeService service;
 
-    // generateNextCode makes two queryForObject calls:
-    //   1. programMax: (sql, Long.class, offset, pattern, programId) — 3 varargs
-    //   2. globalMax:  (sql, Long.class, offset, pattern)            — 2 varargs
-    // Result = Math.max(programMax, globalMax) + 1, so mocks use N-1 / 0 to produce N.
-
     @Test
-    void code_format_is_BTL_padded_three_digits() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(41L);
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
-        assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-042");
+    void code_is_prefix_and_five_random_characters() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        assertThat(service.generateNextCode("p_123", "BTL")).matches("BTL-[2-9][2-9A-HJKMNP-Z]{4}");
     }
 
     @Test
-    void code_pads_single_digit() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(0L);
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
-        assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-001");
+    void codes_are_not_sequential_or_repeated() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        Set<String> codes = new HashSet<>();
+        for (int i = 0; i < 200; i++) codes.add(service.generateNextCode("p_123", "YC"));
+        // 7.4 million possibilities: a rare repeat is fine here (the real check retries), counting up is not.
+        assertThat(codes.size()).isGreaterThan(195);
+        assertThat(codes).doesNotContain("YC-001", "YC-002");
     }
 
     @Test
-    void code_handles_large_sequence() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any())).thenReturn(399L);
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any())).thenReturn(0L);
-        assertThat(service.generateNextCode("p_123", "BTL")).isEqualTo("BTL-400");
+    void retries_when_a_code_is_already_taken() {
+        AtomicInteger calls = new AtomicInteger();
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any()))
+            .thenAnswer(inv -> calls.incrementAndGet() < 3 ? 1 : 0);
+        assertThat(service.generateNextCode("p_123", "YC")).matches("YC-[2-9][2-9A-HJKMNP-Z]{4}");
+        assertThat(calls.get()).isEqualTo(3);
     }
 
     @Test
-    void concurrent_generation_produces_unique_codes() throws InterruptedException {
-        AtomicLong counter = new AtomicLong(0);
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any(), any()))
-            .thenAnswer(inv -> counter.incrementAndGet());
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(), any()))
-            .thenAnswer(inv -> counter.incrementAndGet());
+    void prefix_falls_back_and_is_capped() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        assertThat(service.generateNextCode("p", null)).startsWith("TRP-");
+        assertThat(service.generateNextCode("p", "123")).startsWith("TRP-");
+        assertThat(service.generateNextCode("p", "Abcdefgh")).startsWith("ABCDE-");
+    }
 
-        CopyOnWriteArraySet<String> codes = new CopyOnWriteArraySet<>();
-        ExecutorService pool = Executors.newFixedThreadPool(20);
-
-        for (int i = 0; i < 100; i++) {
-            pool.submit(() -> codes.add(service.generateNextCode("p_123", "BTL")));
-        }
-
-        pool.shutdown();
-        pool.awaitTermination(10, TimeUnit.SECONDS);
-
-        assertThat(codes).hasSize(100);
+    @Test
+    void driver_codes_are_random() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        assertThat(service.generateDriverCode()).matches("DRV-[2-9][2-9A-HJKMNP-Z]{4}");
     }
 }

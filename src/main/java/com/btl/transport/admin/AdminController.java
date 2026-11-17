@@ -463,10 +463,8 @@ public class AdminController {
         driver.setCreatedAt(OffsetDateTime.now());
         driver.setProgramId(programId);
         driver.setLoginToken(java.util.UUID.randomUUID().toString());
-        driver.setDriverCode("DRV-TEMP-" + System.currentTimeMillis());
+        driver.setDriverCode(regCodeService.generateDriverCode());
         Driver saved = driverRepository.save(driver);
-        saved.setDriverCode(String.format("DRV-%03d", saved.getId()));
-        saved = driverRepository.save(saved);
         if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
             try {
                 String driverLink = frontendBaseUrl + "/driver?code=" + saved.getDriverCode();

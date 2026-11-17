@@ -36,6 +36,9 @@ public final class AuditCatalog {
         r("DELETE", "/participants/([^/]+)/payments/[^/]+", "payments", "Deleted a payment for", Kind.PARTICIPANT_CODE),
         r("PATCH", "/participants/([^/]+)/payment-status", "payments", "Changed payment status for", Kind.PARTICIPANT_CODE),
         r("POST", "/payments/reminders", "payments", "Sent payment reminders"),
+        r("POST", "/announcements", "participants", "Sent an announcement"),
+        r("POST", "/announcements/test", "participants", "Sent a test announcement to themselves"),
+        r("PATCH", "/announcements/[^/]+", "participants", "Changed whether an announcement shows on attendee pages"),
         // Souvenirs
         r("PUT", "/participants/([^/]+)/souvenirs/[^/]+", "souvenirs", "Updated souvenirs for", Kind.PARTICIPANT_CODE),
         r("POST", "/souvenirs", "souvenirs", "Added souvenir item"),
@@ -114,6 +117,12 @@ public final class AuditCatalog {
         r("PATCH", "/config/airport", "transport", "Changed airport settings"),
         // Settings
         r("PATCH", "/config/notifications", "settings", "Changed notification settings"),
+        r("PUT", "/programs/[^/]+/google-sheet", "settings", "Connected a Google Sheet backup"),
+        r("DELETE", "/programs/[^/]+/google-sheet", "settings", "Disconnected the Google Sheet backup"),
+        r("POST", "/programs/[^/]+/google-sheet/sync", "settings", "Synced the Google Sheet backup"),
+        r("POST", "/programs/[^/]+/payment-qr", "settings", "Uploaded the payment QR code"),
+        r("DELETE", "/programs/[^/]+/payment-qr", "settings", "Removed the payment QR code"),
+        r("PATCH", "/programs/[^/]+/room-visibility", "accommodation", "Changed when attendees see their room"),
         r("PATCH", "/programs/[^/]+/policies", "settings", "Changed program policies"),
         r("POST", "/programs", "settings", "Created a program"),
         r("PATCH", "/programs/[^/]+", "settings", "Changed program settings"),

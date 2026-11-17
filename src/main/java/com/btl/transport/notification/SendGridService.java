@@ -65,6 +65,25 @@ public class SendGridService {
         }
     }
 
+    /** Like {@link #sendHtmlEmailAs} but says whether SendGrid accepted it (for counting sent/failed). */
+    public boolean sendHtmlEmailChecked(String senderName, String toEmail, String toName, String subject,
+                                        String htmlBody, String plainBody) {
+        try {
+            Mail mail = new Mail();
+            mail.setFrom(new Email(fromEmail, sender(senderName)));
+            mail.setSubject(subject);
+            Personalization personalization = new Personalization();
+            personalization.addTo(new Email(toEmail, toName));
+            mail.addPersonalization(personalization);
+            mail.addContent(new Content("text/plain", plainBody));
+            mail.addContent(new Content("text/html", htmlBody));
+            return send(mail, toEmail, subject);
+        } catch (Exception e) {
+            log.error("SendGrid send failed — to={} subject={}", toEmail, subject, e);
+            return false;
+        }
+    }
+
     /** An image shown inside the email body via "cid:{contentId}" (works without any public link). */
     public record InlineImage(String contentId, String contentType, byte[] data) {}
 
@@ -100,7 +119,7 @@ public class SendGridService {
         return senderName != null && !senderName.isBlank() ? senderName.trim() : fromName;
     }
 
-    private void send(Mail mail, String toEmail, String subject) throws Exception {
+    private boolean send(Mail mail, String toEmail, String subject) throws Exception {
         // No click tracking: SendGrid would rewrite every link into a long tracking URL, which looks
         // untrustworthy and routes one-time links (email confirmation, driver access) through a third party.
         TrackingSettings tracking = new TrackingSettings();
@@ -119,8 +138,9 @@ public class SendGridService {
         if (response.getStatusCode() >= 400) {
             log.error("SendGrid rejected email — to={} subject={} status={} body={}",
                 toEmail, subject, response.getStatusCode(), response.getBody());
-        } else {
-            log.info("Email delivered — to={} subject={} status={}", toEmail, subject, response.getStatusCode());
+            return false;
         }
+        log.info("Email delivered — to={} subject={} status={}", toEmail, subject, response.getStatusCode());
+        return true;
     }
 }

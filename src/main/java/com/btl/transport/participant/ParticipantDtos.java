@@ -62,7 +62,6 @@ public final class ParticipantDtos {
         String message
     ) {}
 
-    record NotificationResponse(boolean success, String message) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record HotelDto(
@@ -175,6 +174,8 @@ public final class ParticipantDtos {
         /** Null when they can see their room; else {reason: checkin|date|checkin_or_date, from} */
         @JsonProperty("room_locked") Map<String, Object> roomLocked,
         /** How to pay: {instructions, has_qr, fee, currency}; null when there's nothing to show */
-        @JsonProperty("payment_info") Map<String, Object> paymentInfo
+        @JsonProperty("payment_info") Map<String, Object> paymentInfo,
+        /** Announcements sent to this person and still shown on attendee pages, newest first. */
+        @JsonProperty("announcements") List<Map<String, Object>> announcements
     ) {}
 }

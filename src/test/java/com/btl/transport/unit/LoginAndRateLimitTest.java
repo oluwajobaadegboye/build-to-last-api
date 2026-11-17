@@ -29,6 +29,35 @@ class LoginAndRateLimitTest {
         assertThat(n3).isEqualTo("/api/v1/admin/participants/{code}");
         String n4 = ReflectionTestUtils.invokeMethod(f, "normalizePath", "/api/v1/admin/participants/ms-002/payment-status");
         assertThat(n4).isEqualTo("/api/v1/admin/participants/{code}/payment-status");
+        String n5 = ReflectionTestUtils.invokeMethod(f, "normalizePath", "/api/v1/participant/BTL-7KQ4M/board-run");
+        assertThat(n5).isEqualTo("/api/v1/participant/{code}/board-run");
+        String n6 = ReflectionTestUtils.invokeMethod(f, "normalizePath", "/api/v1/admin/participants/BTL-7KQ4M/check-in");
+        assertThat(n6).isEqualTo("/api/v1/admin/participants/{code}/check-in");
+    }
+
+    @Test
+    void wrong_code_limit_covers_only_public_code_lookups() {
+        assertThat(RateLimitFilter.isCodeLookup("GET", "/api/v1/participant-status")).isTrue();
+        assertThat(RateLimitFilter.isCodeLookup("GET", "/api/v1/driver/me")).isTrue();
+        assertThat(RateLimitFilter.isCodeLookup("PATCH", "/api/v1/my-details")).isTrue();
+        assertThat(RateLimitFilter.isCodeLookup("PATCH", "/api/v1/participant/{code}/board-run")).isTrue();
+        assertThat(RateLimitFilter.isCodeLookup("GET", "/api/v1/programs/yc26")).isFalse();
+        assertThat(RateLimitFilter.isCodeLookup("GET", "/api/v1/admin/participants/{code}")).isFalse();
+    }
+
+    @Test
+    void wrong_codes_are_counted_per_device_on_a_shared_network() {
+        var phone1 = new org.springframework.mock.web.MockHttpServletRequest();
+        phone1.addHeader("X-Device-Id", "7f3c1d2e-aaaa-bbbb-cccc-123456789abc");
+        var phone2 = new org.springframework.mock.web.MockHttpServletRequest();
+        phone2.addHeader("X-Device-Id", "0a9b8c7d-aaaa-bbbb-cccc-123456789abc");
+        var junk = new org.springframework.mock.web.MockHttpServletRequest();
+        junk.addHeader("X-Device-Id", "<script>");
+        String k1 = ReflectionTestUtils.invokeMethod(RateLimitFilter.class, "deviceKey", phone1, "1.2.3.4");
+        String k2 = ReflectionTestUtils.invokeMethod(RateLimitFilter.class, "deviceKey", phone2, "1.2.3.4");
+        String k3 = ReflectionTestUtils.invokeMethod(RateLimitFilter.class, "deviceKey", junk, "1.2.3.4");
+        assertThat(k1).isNotEqualTo(k2).startsWith("1.2.3.4|");
+        assertThat(k3).isEqualTo("1.2.3.4|-");
     }
 
     @Test
