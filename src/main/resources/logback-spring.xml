@@ -23,6 +23,6 @@
       <appender-ref ref="FILE"/>
     </root>
     <logger name="org.hibernate.SQL" level="DEBUG"/>
-    <logger name="com.btl" level="DEBUG"/>
+    <logger name="org.programhub" level="DEBUG"/>
   </springProfile>
 </configuration>

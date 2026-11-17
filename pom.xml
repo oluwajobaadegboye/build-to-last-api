@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.btl</groupId>
+    <groupId>org.programhub</groupId>
     <artifactId>btl-transport</artifactId>
     <version>1.0.0</version>
     <name>btl-transport</name>
