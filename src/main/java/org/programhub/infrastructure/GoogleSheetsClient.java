@@ -64,7 +64,8 @@ public class GoogleSheetsClient {
         this.api = api.endsWith("/") ? api : api + "/";
         String email = null, uri = "https://oauth2.googleapis.com/token";
         PrivateKey key = null;
-        if (keyJson != null && !keyJson.isBlank()) {
+        // "PLACEHOLDER" is what Terraform stores until the real key is pasted in: treat it as not set.
+        if (keyJson != null && !keyJson.isBlank() && !"PLACEHOLDER".equals(keyJson.trim())) {
             try {
                 String raw = keyJson.trim();
                 if (!raw.startsWith("{")) raw = new String(Base64.getDecoder().decode(raw), StandardCharsets.UTF_8);

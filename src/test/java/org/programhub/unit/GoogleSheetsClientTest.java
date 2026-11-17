@@ -22,5 +22,6 @@ class GoogleSheetsClientTest {
         GoogleSheetsClient c = new GoogleSheetsClient("");
         assertThat(c.isConfigured()).isFalse();
         assertThat(new GoogleSheetsClient("{not json").isConfigured()).isFalse();
+        assertThat(new GoogleSheetsClient("PLACEHOLDER").isConfigured()).isFalse();  // Terraform's stand-in value
     }
 }
