@@ -502,6 +502,8 @@ public class ParticipantController {
                     d.put("phone", p.getPhone());
                     d.put("ask_phone", !Boolean.FALSE.equals(pr.getAskPhone()));
                     d.put("custom_answers", registrationFieldService.parseAnswers(p.getCustomAnswers()));
+                    // Questions the attendee can see but not change (the one that sets their fee).
+                    d.put("locked", lockedKeys(pr));
                     return d;
                 }).orElse(null),
             roomLocked,
@@ -532,6 +534,11 @@ public class ParticipantController {
         m.put("paid_some", paid.signum() > 0);
         m.put("currency", prog.getFeeCurrency() != null ? prog.getFeeCurrency() : "USD");
         return m;
+    }
+
+    /** Answers attendees can't change themselves: the fee question, when fees differ by answer. */
+    private static List<String> lockedKeys(Program prog) {
+        return FeeRules.byAnswer(prog) ? List.of(prog.getFeeQuestionKey()) : List.of();
     }
 
     // ── PATCH /api/v1/my-details ──────────────────────────────────────────
@@ -573,8 +580,13 @@ public class ParticipantController {
         }
         Map<String, Object> answers = null;
         if (req.customAnswers() != null) {
-            Map<String, Object> merged = new LinkedHashMap<>(registrationFieldService.parseAnswers(p.getCustomAnswers()));
+            Map<String, Object> saved = registrationFieldService.parseAnswers(p.getCustomAnswers());
+            Map<String, Object> merged = new LinkedHashMap<>(saved);
             merged.putAll(req.customAnswers());
+            // The fee question stays as it was: changing it would change what they owe, so only admins can.
+            for (String key : lockedKeys(prog)) {
+                if (saved.containsKey(key)) merged.put(key, saved.get(key)); else merged.remove(key);
+            }
             try { answers = registrationFieldService.validate(p.getProgramId(), merged, false); }
             catch (RegistrationFieldService.InvalidAnswersException e) { errors.putAll(e.getErrors()); }
         }
