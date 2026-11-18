@@ -1,0 +1,154 @@
+package org.programhub.run;
+
+import org.programhub.common.enums.ConferenceDay;
+import org.programhub.common.enums.Direction;
+import org.programhub.common.enums.RunStatusEnum;
+import org.programhub.hotel.Hotel;
+import org.programhub.hotel.HotelRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import org.programhub.program.Program;
+import org.programhub.program.ProgramDates;
+import org.programhub.program.ProgramRepository;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.*;
+
+@Tag(name = "Runs", description = "Public shuttle schedule and real-time run status endpoints")
+@RestController
+@RequestMapping("/api/v1")
+@RequiredArgsConstructor
+public class RunController {
+
+    private final RunRepository runRepository;
+    private final ProgramRepository programRepository;
+    private final RunService runService;
+    private final HotelRepository hotelRepository;
+
+    // ── GET /api/v1/shuttle-status ─────────────────────────────────────────
+    @Operation(summary = "Get shuttle status", description = "Returns the full multi-day shuttle schedule, the next upcoming departure, and hotel pickup stop order")
+    @GetMapping("/shuttle-status")
+    public ResponseEntity<Map<String, Object>> shuttleStatus(
+            @RequestParam(name = "program_id", required = false) String programId) {
+        List<Hotel> hotels = programId != null
+                ? hotelRepository.findByProgramIdOrderByShuttleStopOrderAsc(programId)
+                : hotelRepository.findAllByOrderByShuttleStopOrderAsc();
+        List<Run> allRuns = programId != null
+                ? runRepository.findShuttleRunsByProgramIdWithDetails(programId)
+                : runRepository.findAllShuttleRunsWithDetails();
+
+        Map<String, Map<String, List<Map<String, Object>>>> schedule = new LinkedHashMap<>();
+        for (ConferenceDay day : ConferenceDay.values()) {
+            String dayKey = day.name().toLowerCase();
+            Map<String, List<Map<String, Object>>> dayMap = new LinkedHashMap<>();
+            dayMap.put("to_church", new ArrayList<>());
+            dayMap.put("to_hotel", new ArrayList<>());
+            dayMap.put("to_airport", new ArrayList<>());
+            schedule.put(dayKey, dayMap);
+        }
+
+        // Same runs keyed by actual date ("2027-03-01"). Weekday keys above merge repeated weekdays
+        // in programs longer than a week; clients should prefer this map.
+        Map<String, Map<String, List<Map<String, Object>>>> scheduleByDate = new TreeMap<>();
+
+        for (Run r : allRuns) {
+            if (r.getDirection() == null) continue;
+            String dirKey = r.getDirection().name().toLowerCase();
+            Map<String, Object> runMap = runToMap(r);
+            if (r.getConferenceDay() != null) {
+                schedule.getOrDefault(r.getConferenceDay().name().toLowerCase(), Map.of())
+                    .getOrDefault(dirKey, new ArrayList<>())
+                    .add(runMap);
+            }
+            if (r.getConferenceDate() != null) {
+                scheduleByDate.computeIfAbsent(r.getConferenceDate().toString(), k -> {
+                        Map<String, List<Map<String, Object>>> m = new LinkedHashMap<>();
+                        m.put("to_church", new ArrayList<>());
+                        m.put("to_hotel", new ArrayList<>());
+                        m.put("to_airport", new ArrayList<>());
+                        return m;
+                    })
+                    .computeIfAbsent(dirKey, k -> new ArrayList<>())
+                    .add(runMap);
+            }
+        }
+
+        Program program = programId != null ? programRepository.findById(programId).orElse(null) : null;
+
+        // Find next departure from now, in the program's own time zone
+        ZoneId zone = program != null ? ProgramDates.zone(program) : ZoneId.of("America/New_York");
+        OffsetDateTime now = OffsetDateTime.now(zone);
+        Run next = findNextDeparture(allRuns, now);
+
+        Map<String, Object> nextDep = null;
+        if (next != null) {
+            nextDep = new LinkedHashMap<>();
+            nextDep.put("run_id", next.getRunId());
+            nextDep.put("depart_time", next.getDepartTime());
+            nextDep.put("direction", next.getDirection() != null ? next.getDirection().name().toLowerCase() : null);
+            nextDep.put("conference_day", next.getConferenceDay() != null ? next.getConferenceDay().name().toLowerCase() : null);
+            nextDep.put("seats_left", next.getSeatsRemaining());
+            nextDep.put("vehicle_label", next.getVehicle() != null ? next.getVehicle().getLabel() : null);
+            nextDep.put("driver_name", next.getDriver() != null ? next.getDriver().getName() : null);
+        }
+
+        List<Map<String, Object>> stopOrder = hotels.stream().map(h -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("stop_order", h.getShuttleStopOrder());
+            m.put("hotel_name", h.getHotelName());
+            m.put("pickup_address", h.getPickupAddress());
+            return m;
+        }).toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("generated_at", OffsetDateTime.now().toString());
+        result.put("next_departure", nextDep);
+        result.put("schedule", schedule);
+        result.put("schedule_by_date", scheduleByDate);
+        result.put("stop_order", stopOrder);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("conference_start", program != null && program.getStartDate() != null ? program.getStartDate() : "");
+        meta.put("conference_end", program != null && program.getEndDate() != null ? program.getEndDate() : "");
+        meta.put("airport", program != null && program.getAirport() != null ? program.getAirport() : "");
+        result.put("meta", meta);
+
+        return ResponseEntity.ok(result);
+    }
+
+    private Run findNextDeparture(List<Run> runs, OffsetDateTime now) {
+        LocalDate today = now.toLocalDate();
+        String nowTime = String.format("%02d:%02d", now.getHour(), now.getMinute());
+
+        return runs.stream()
+            .filter(r -> r.getConferenceDate() != null && !r.getConferenceDate().isBefore(today))
+            .filter(r -> r.getDepartTime() != null)
+            .filter(r -> r.getConferenceDate().isAfter(today)
+                || r.getDepartTime().compareTo(nowTime) >= 0)
+            .filter(r -> r.getStatus() != null
+                && r.getStatus() != RunStatusEnum.CANCELLED
+                && r.getStatus() != RunStatusEnum.COMPLETED)
+            .min(Comparator.comparing((Run r) -> r.getConferenceDate() != null ? r.getConferenceDate().toString() : "")
+                .thenComparing(r -> r.getDepartTime() != null ? r.getDepartTime() : ""))
+            .orElse(null);
+    }
+
+    private Map<String, Object> runToMap(Run r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("run_id", r.getRunId());
+        m.put("depart_time", r.getDepartTime());
+        m.put("status", r.getStatus() != null ? r.getStatus().name().toLowerCase() : null);
+        m.put("seats_total", r.getSeatsTotal());
+        m.put("seats_filled", r.getSeatsFilled());
+        m.put("seats_left", r.getSeatsRemaining());
+        m.put("vehicle_label", r.getVehicle() != null ? r.getVehicle().getLabel() : null);
+        m.put("driver_name", r.getDriver() != null ? r.getDriver().getName() : null);
+        m.put("driver_phone", r.getDriver() != null ? r.getDriver().getPhone() : null);
+        m.put("pickup_location", r.getHotel() != null ? r.getHotel().getHotelName() : r.getPickupLocation());
+        return m;
+    }
+}

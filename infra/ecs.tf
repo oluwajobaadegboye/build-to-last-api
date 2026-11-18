@@ -45,6 +45,7 @@ resource "aws_ecs_task_definition" "app" {
       { name = "ADMIN_1_PASSWORD_HASH", valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-1-password-hash::" },
       { name = "ADMIN_2_USERNAME",      valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-2-username::" },
       { name = "ADMIN_2_PASSWORD_HASH", valueFrom = "${aws_secretsmanager_secret.app.arn}:admin-2-password-hash::" },
+      { name = "GOOGLE_SERVICE_ACCOUNT_JSON", valueFrom = aws_secretsmanager_secret_version.google.arn },
     ]
 
     environment = [

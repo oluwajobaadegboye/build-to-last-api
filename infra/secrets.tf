@@ -39,3 +39,19 @@ resource "aws_secretsmanager_secret_version" "app" {
     ignore_changes = [secret_string]
   }
 }
+
+# Google Sheets backup: the service account's JSON key, stored whole (the value itself is JSON).
+# Terraform creates it with a placeholder; paste the real key in the AWS console. Until then the backup is off.
+resource "aws_secretsmanager_secret" "google" {
+  name = "btl/google-service-account"
+  tags = { Name = "btl/google-service-account" }
+}
+
+resource "aws_secretsmanager_secret_version" "google" {
+  secret_id     = aws_secretsmanager_secret.google.id
+  secret_string = "PLACEHOLDER"
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
